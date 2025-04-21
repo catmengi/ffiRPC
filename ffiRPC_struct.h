@@ -99,8 +99,8 @@ static inline ffiRPC_struct_t ffiRPC_struct_create(){
     struct ffiRPC_container_element* element = malloc(sizeof(*element)); assert(element);\
     C_to_ffiRPC(element,type);\
     hashtable_set(ffiRPC_struct->ht,strdup(key),element);\
-    ffiRPC_struct->size++;})
+    ffiRPC_struct->size++;(int)(0);})
 
 
 #define ffiRPC_struct_get(ffiRPC_struct, key, output)({int ret = 1;struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
-                                                    if(element != NULL){assert(element->type == CType_to_ffiRPC(output));if(ffiRPC_is_pointer(element->type) == 1){ffiRPC_cast_value(output,(typeof(output))element->data);} else{ffiRPC_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+                                                    if(element != NULL){assert(element->type == CType_to_ffiRPC(output));if(ffiRPC_is_pointer(element->type)){ffiRPC_cast_value(output,(typeof(output))element->data);} else{ffiRPC_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
