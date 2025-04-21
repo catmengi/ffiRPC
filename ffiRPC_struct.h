@@ -48,6 +48,7 @@ struct ffiRPC_struct{
                                     uint64_t             : ffiRPC_uint64,      \
                                     float                : ffiRPC_double,      \
                                     double               : ffiRPC_double,      \
+                                    char[]               : ffiRPC_string,      \
                                     char*                : ffiRPC_string,      \
                                     ffiRPC_struct_t      : ffiRPC_struct,      \
                                     default              : ffiRPC_unknown      \
