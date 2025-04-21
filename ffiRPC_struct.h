@@ -36,7 +36,7 @@ struct ffiRPC_struct{
 };
 
 
-#define CType_to_ffiRPC(Native_type) _Generic(Native_type,                     \
+#define CType_to_ffiRPC(Native_type) _Generic((Native_type),                   \
                                     char                 : ffiRPC_char,        \
                                     int8_t               : ffiRPC_int8,        \
                                     uint8_t              : ffiRPC_uint8,       \
@@ -48,7 +48,6 @@ struct ffiRPC_struct{
                                     uint64_t             : ffiRPC_uint64,      \
                                     float                : ffiRPC_double,      \
                                     double               : ffiRPC_double,      \
-                                    char[]               : ffiRPC_string,      \
                                     char*                : ffiRPC_string,      \
                                     ffiRPC_struct_t      : ffiRPC_struct,      \
                                     default              : ffiRPC_unknown      \
@@ -76,27 +75,32 @@ static inline ffiRPC_struct_t ffiRPC_struct_create(){
     return ffiRPC_struct;
 }
 
+#define ffiRPC_cast_value(output, input) typeof(output) cpy = input; output = cpy;
 
-#define C_to_ffiRPC(element,var)\
+#define C_to_ffiRPC(element,var)({\
     element->type = CType_to_ffiRPC(var);\
     if(ffiRPC_is_pointer(element->type)){\
-        void* ptr = (void*)var;\
-        if(element->type == ffiRPC_string){\
-            element->data = strdup(ptr);\
-            assert(element->data);\
-        } else element->data = ptr;\
-            element->length = 0;\
+        void* ptr = NULL;\
+        void* cpy_varV = (void*)var;\
+        if(element->type == ffiRPC_string) {ptr = strdup(cpy_varV); assert(ptr);}\
+        else ptr = cpy_varV;\
+        element->data = ptr;\
+        element->length = 0;\
     } else {\
         typeof(var) cpy_var = var;\
         element->data = malloc(sizeof(cpy_var));\
         assert(element->data);\
         element->length = sizeof(cpy_var);\
         memcpy(element->data,(void*)&cpy_var,element->length);\
-    }
+    }})
 
 
-#define ffiRPC_struct_set(ffiRPC_struct, key, type)\
+#define ffiRPC_struct_set(ffiRPC_struct, key, type)({\
     struct ffiRPC_container_element* element = malloc(sizeof(*element)); assert(element);\
     C_to_ffiRPC(element,type);\
     hashtable_set(ffiRPC_struct->ht,strdup(key),element);\
-    ffiRPC_struct->size++;
+    ffiRPC_struct->size++;})
+
+
+#define ffiRPC_struct_get(ffiRPC_struct, key, output)({int ret = 1;struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
+                                                    if(element != NULL){assert(element->type == CType_to_ffiRPC(output));if(ffiRPC_is_pointer(element->type) == 1){ffiRPC_cast_value(output,(typeof(output))element->data);} else{ffiRPC_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
