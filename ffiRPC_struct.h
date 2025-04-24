@@ -36,7 +36,16 @@ struct ffiRPC_struct{
 };
 typedef struct ffiRPC_struct *ffiRPC_struct_t;
 
-ffiRPC_struct_t ffiRPC_struct_create(void);
+//==================== public API's ===================
+
+ffiRPC_struct_t ffiRPC_struct_create(void);  //creates a new ffiRPC_struct_t
+
+void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct);  //frees ffiRPC_struct_t and ALL it's content
+
+int ffiRPC_struct_unlink(ffiRPC_struct_t ffiRPC_struct, char* key); //remove pointer type with key "key" from ffiRPC_struct BUT DOESNT FREE it's data. RETURN 0 on success else 1
+int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key); //remove type with key "key" from ffiRPC_struct and free it
+
+//=====================================================
 
 int ffiRPC_is_pointer(enum ffiRPC_types type);
 void ffiRPC_container_free(struct ffiRPC_container_element* element);
@@ -77,6 +86,7 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
         memcpy(element->data,(void*)&cpy_var,element->length);\
     }})
 
+//==================== public API's ===================
 
 /*Sets a structure element at ffiRPC_struct with type of "input" and value of "input".
  *NOTE: If you are passing string literal you SHOULD cast it to char*
@@ -89,7 +99,7 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
 #define ffiRPC_struct_set(ffiRPC_struct, key, input)({\
     struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
     if(element == NULL) {element = malloc(sizeof(*element)); assert(element); ffiRPC_struct->size++;}\
-    else{ffiRPC_container_free(element);}\
+    else ffiRPC_container_free(element);\
     C_to_ffiRPC(element,input);\
     hashtable_set(ffiRPC_struct->ht,strdup(key),element);\
     (int)(0);})
@@ -105,3 +115,5 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
 */
 #define ffiRPC_struct_get(ffiRPC_struct, key, output)({int ret = 1;struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
                                                     if(element != NULL){assert(element->type == CType_to_ffiRPC(output));if(ffiRPC_is_pointer(element->type)){ffiRPC_cast_value(output,(typeof(output))element->data);} else{ffiRPC_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+
+//=====================================================
