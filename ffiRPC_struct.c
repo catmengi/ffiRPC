@@ -23,7 +23,7 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element){
                 free(element->data);
                 break;
             case ffiRPC_struct:
-                //ffiRPC_struct_free(element->data);
+                ffiRPC_struct_free(element->data);
                 break;
             default: break; //ffiRPC_unknown should not be freed
         }
