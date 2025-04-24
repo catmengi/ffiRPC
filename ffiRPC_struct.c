@@ -1,5 +1,5 @@
 #include "ffiRPC_struct.h"
-#include "hashtable.c/hashtable.h"
+
 ffiRPC_struct_t ffiRPC_struct_create(void){
     ffiRPC_struct_t ffiRPC_struct = (ffiRPC_struct_t)malloc(sizeof(*ffiRPC_struct));
     assert(ffiRPC_struct);
