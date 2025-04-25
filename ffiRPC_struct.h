@@ -26,6 +26,7 @@ enum ffiRPC_types{
     EffiRPC_unknown,
 };
 
+#define FFIRPC_STRUCT_MAX_GC_ELEMENTS 1024
 struct ffiRPC_container_element{
     void* data;
     size_t length;
@@ -36,6 +37,7 @@ typedef struct{
     hashtable* anti_double_free;
 
     atomic_size_t size;
+    atomic_size_t doubles; //count of elements that should be garbage collected, should be batched
 }*ffiRPC_struct_t;
 
 //==================== public API's ===================
@@ -75,7 +77,7 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
     element->type = CType_to_ffiRPC(var);\
     if(ffiRPC_is_pointer(element->type)){\
         void* ptr = NULL;\
-        void* cpy_varV = (void*)var;\
+        void* cpy_varV = (void*)(uint64_t)var;\
         if(element->type == EffiRPC_string) {ptr = strdup(cpy_varV); assert(ptr);}\
         else ptr = cpy_varV;\
         element->data = ptr;\
