@@ -31,13 +31,12 @@ struct ffiRPC_container_element{
     size_t length;
     enum ffiRPC_types type;
 };
-struct _ffiRPC_struct{
+typedef struct{
     hashtable* ht;
     hashtable* anti_double_free;
 
     atomic_size_t size;
-};
-typedef struct _ffiRPC_struct *ffiRPC_struct_t;
+}*ffiRPC_struct_t;
 
 //==================== public API's ===================
 
