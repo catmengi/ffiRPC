@@ -66,9 +66,3 @@ ffiRPC_struct_t ffiRPC_thread_context_get(){
     pthread_key_t key = 0;
     return (ffiRPC_struct_t)(ffiRPC_thread_context_get_key(&key) != 0 ? NULL : pthread_getspecific(key));
 }
-
-int main(){
-    ffiRPC_init_thread_context();
-    ffiRPC_thread_context_set(ffiRPC_struct_create());
-    assert(ffiRPC_thread_context_get() != NULL);
-}
