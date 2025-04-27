@@ -6,6 +6,7 @@
  */
 
 #include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
@@ -146,7 +147,7 @@ void hashtable_resize(hashtable* t, unsigned int capacity)
 	t->capacity = capacity;
 
 	// Copy all the old values into the newly allocated body
-	for (int i = 0; i < old_capacity; i++) {
+	for (unsigned int i = 0; i < old_capacity; i++) {
 		if (old_body[i].key != NULL && old_body[i].key != (char*)0xDEAD) {
 			hashtable_set_NL(t, old_body[i].key, old_body[i].value);
 		}
@@ -165,7 +166,7 @@ void hashtable_destroy(hashtable* t)
 
 uint64_t murmur(char* str,uint32_t keylen){
 	uint64_t h = (525201411107845655ull);
-	for (int i =0; i < keylen; i++,str++){
+	for (uint32_t i =0; i < keylen; i++,str++){
 		h ^= *str;
 		h *= 0x5bd1e9955bd1e995;
 		h ^= h >> 47;

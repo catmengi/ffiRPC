@@ -9,24 +9,24 @@
 #include "hashtable.c/hashtable.h"
 
 enum ffiRPC_types{
-    EffiRPC_char = 1,
-    EffiRPC_int8 = 1,
-    EffiRPC_uint8,
-    EffiRPC_int16,
-    EffiRPC_uint16,
-    EffiRPC_int32,
-    EffiRPC_uint32,
-    EffiRPC_int64,
-    EffiRPC_uint64,
-    EffiRPC_double,
+    FFIRPC_char = 1,
+    FFIRPC_int8 = 1,
+    FFIRPC_uint8,
+    FFIRPC_int16,
+    FFIRPC_uint16,
+    FFIRPC_int32,
+    FFIRPC_uint32,
+    FFIRPC_int64,
+    FFIRPC_uint64,
+    FFIRPC_double,
 
-    EffiRPC_string,
-    EffiRPC_struct,
+    FFIRPC_string,
+    FFIRPC_struct,
 
-    EffiRPC_unknown,
+    FFIRPC_unknown,
+    FFIRPC_duplicate,
 };
 
-#define FFIRPC_STRUCT_MAX_GC_ELEMENTS 1024
 struct ffiRPC_container_element{
     void* data;
     size_t length;
@@ -34,10 +34,10 @@ struct ffiRPC_container_element{
 };
 typedef struct{
     hashtable* ht;
-    hashtable* anti_double_free;
+    hashtable* anti_double_free;  //used to not free elements that have different keys but same data
 
     atomic_size_t size;
-    atomic_size_t doubles; //count of elements that should be garbage collected, should be batched
+    atomic_bool run_GC;
 }*ffiRPC_struct_t;
 
 //==================== public API's ===================
@@ -47,28 +47,31 @@ ffiRPC_struct_t ffiRPC_struct_create(void);  //creates a new ffiRPC_struct_t
 void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct);  //frees ffiRPC_struct_t and ALL it's content
 
 int ffiRPC_struct_unlink(ffiRPC_struct_t ffiRPC_struct, char* key); //remove pointer type with key "key" from ffiRPC_struct BUT DOESNT FREE it's data. RETURN 0 on success else 1
-int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key); //remove type with key "key" from ffiRPC_struct and free it
+
+int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key); //remove type with key "key" from ffiRPC_struct and free it.
+                                                                    //using removed element is undefined behavior because free will be done on next ffiRPC_struct_set or ffiRPC_struct_free
 
 //=====================================================
 
 int ffiRPC_is_pointer(enum ffiRPC_types type);
 void ffiRPC_container_free(struct ffiRPC_container_element* element);
+void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct);
 
 #define CType_to_ffiRPC(Native_type) _Generic((Native_type),                   \
-                                    char                 : EffiRPC_char,        \
-                                    int8_t               : EffiRPC_int8,        \
-                                    uint8_t              : EffiRPC_uint8,       \
-                                    int16_t              : EffiRPC_int16,       \
-                                    uint16_t             : EffiRPC_uint16,      \
-                                    int32_t              : EffiRPC_int32,       \
-                                    uint32_t             : EffiRPC_uint32,      \
-                                    int64_t              : EffiRPC_int64,       \
-                                    uint64_t             : EffiRPC_uint64,      \
-                                    float                : EffiRPC_double,      \
-                                    double               : EffiRPC_double,      \
-                                    char*                : EffiRPC_string,      \
-                                    ffiRPC_struct_t      : EffiRPC_struct,      \
-                                    default              : EffiRPC_unknown      \
+                                    char                 : FFIRPC_char,        \
+                                    int8_t               : FFIRPC_int8,        \
+                                    uint8_t              : FFIRPC_uint8,       \
+                                    int16_t              : FFIRPC_int16,       \
+                                    uint16_t             : FFIRPC_uint16,      \
+                                    int32_t              : FFIRPC_int32,       \
+                                    uint32_t             : FFIRPC_uint32,      \
+                                    int64_t              : FFIRPC_int64,       \
+                                    uint64_t             : FFIRPC_uint64,      \
+                                    float                : FFIRPC_double,      \
+                                    double               : FFIRPC_double,      \
+                                    char*                : FFIRPC_string,      \
+                                    ffiRPC_struct_t      : FFIRPC_struct,      \
+                                    default              : FFIRPC_unknown      \
 )
 
 #define ffiRPC_cast_value(output, input) typeof(output) cpy = input; output = cpy;
@@ -78,7 +81,7 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
     if(ffiRPC_is_pointer(element->type)){\
         void* ptr = NULL;\
         void* cpy_varV = (void*)(uint64_t)var;\
-        if(element->type == EffiRPC_string) {ptr = strdup(cpy_varV); assert(ptr);}\
+        if(element->type == FFIRPC_string) {ptr = strdup(cpy_varV); assert(ptr);}\
         else ptr = cpy_varV;\
         element->data = ptr;\
         element->length = 0;\
@@ -104,11 +107,23 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element);
 #define ffiRPC_struct_set(ffiRPC_struct, key, input)({\
     int __ret = 1;\
     assert(key != NULL);\
+    if(ffiRPC_struct->run_GC) ffiRPC_struct_cleanup(ffiRPC_struct);\
     struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
     if(element == NULL){\
         element = malloc(sizeof(*element)); assert(element); ffiRPC_struct->size++;\
         C_to_ffiRPC(element,input);\
         hashtable_set(ffiRPC_struct->ht,strdup(key),element);\
+        if(ffiRPC_is_pointer(element->type) && element->type != FFIRPC_string){\
+            char NOdoublefree[sizeof(void*) * 2];\
+            sprintf(NOdoublefree,"%p",element->data);\
+            if(hashtable_get(ffiRPC_struct->anti_double_free,NOdoublefree) == NULL){\
+                struct ffiRPC_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);\
+                GC_copy->data = element->data;\
+                GC_copy->length = element->length;\
+                GC_copy->type = element->type;\
+                hashtable_set(ffiRPC_struct->anti_double_free,strdup(NOdoublefree),GC_copy);\
+            }\
+        }\
         __ret = 0;\
     }(int)(__ret);})
 
