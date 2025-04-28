@@ -5,7 +5,7 @@
 #include <pthread.h>
 
 
-hashtable* thread_context = NULL;
+static hashtable* thread_context = NULL;
 
 void ffiRPC_init_thread_context(){
     if(thread_context == NULL){
@@ -13,56 +13,36 @@ void ffiRPC_init_thread_context(){
         assert(thread_context);
     }
 }
+void ffiRPC_destroy_thread_context(){
+    if(thread_context != NULL){
+        for(size_t i = 0; i < thread_context->capacity; i++){
+            if(thread_context->body[i].key != NULL && thread_context->body[i].key != (void*)0xDEAD){
+                free(thread_context->body[i].key);
+            }
+        }
 
-int ffiRPC_thread_context_get_key(pthread_key_t* output){
-    void* thread_as_ptr = (void*)pthread_self();
-    char ht_access[sizeof(void*) * 2];
-
-    sprintf(ht_access,"%p",thread_as_ptr);
-    pthread_key_t* key = hashtable_get(thread_context,ht_access);
-    if(key == NULL) return 1;
-
-    *output = *key;
-    return 0;
-}
-void ffiRPC_thread_context_set_key(){
-    void* thread_as_ptr = (void*)pthread_self();
-    char ht_access[sizeof(void*) * 2];
-
-    sprintf(ht_access,"%p",thread_as_ptr);
-    pthread_key_t* set_key = malloc(sizeof(*set_key)); assert(set_key);
-    assert(pthread_key_create(set_key,NULL) == 0);
-
-    hashtable_set(thread_context,strdup(ht_access),set_key);
-}
-void ffiRPC_thread_context_remove_key(){
-    void* thread_as_ptr = (void*)pthread_self();
-    char ht_access[sizeof(void*) * 2];
-
-    sprintf(ht_access,"%p",thread_as_ptr);
-    if(hashtable_get(thread_context,ht_access) != NULL){
-        unsigned int slot = hashtable_find_slot(thread_context,ht_access);
-        char* free_key = thread_context->body[slot].key;
-
-        pthread_key_delete(*(pthread_key_t*)thread_context->body[slot].value);
-        free(thread_context->body[slot].value);
-
-        hashtable_remove(thread_context,ht_access);
-
-        free(free_key);
+        hashtable_destroy(thread_context);
+        thread_context = NULL;
     }
+}
+int ffiRPC_is_thread_context_inited(){
+    return thread_context != NULL;
 }
 
 void ffiRPC_thread_context_set(ffiRPC_struct_t ffiRPC_struct){
-    pthread_key_t key = 0;
-    if(ffiRPC_thread_context_get_key(&key) != 0){
-        ffiRPC_thread_context_set_key();
+    assert(thread_context);
+    void* thread_as_ptr = (void*)pthread_self();
+    char ht_access[sizeof(void*) * 2];
 
-        assert(ffiRPC_thread_context_get_key(&key) == 0);
-    }
-    pthread_setspecific(key,ffiRPC_struct);
+    sprintf(ht_access,"%p",thread_as_ptr);
+    hashtable_set(thread_context,strdup(ht_access),ffiRPC_struct);
 }
 ffiRPC_struct_t ffiRPC_thread_context_get(){
-    pthread_key_t key = 0;
-    return (ffiRPC_struct_t)(ffiRPC_thread_context_get_key(&key) != 0 ? NULL : pthread_getspecific(key));
+    assert(thread_context);
+    void* thread_as_ptr = (void*)pthread_self();
+    char ht_access[sizeof(void*) * 2];
+
+    sprintf(ht_access,"%p",thread_as_ptr);
+
+    return hashtable_get(thread_context,ht_access);
 }
