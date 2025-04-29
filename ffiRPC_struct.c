@@ -2,6 +2,14 @@
 #include "hashtable.c/hashtable.h"
 #include <stdint.h>
 
+struct _ffiRPC_struct{
+    hashtable* ht;
+    hashtable* anti_double_free;  //used to not free elements that have different keys but same data
+
+    atomic_size_t size;
+    atomic_bool run_GC;
+};
+
 ffiRPC_struct_t ffiRPC_struct_create(void){
     ffiRPC_struct_t ffiRPC_struct = (ffiRPC_struct_t)malloc(sizeof(*ffiRPC_struct));
     assert(ffiRPC_struct);
@@ -14,6 +22,18 @@ ffiRPC_struct_t ffiRPC_struct_create(void){
 
     return ffiRPC_struct;
 }
+
+//used to implement OPAQUE
+void* ffiRPC_struct_HT(ffiRPC_struct_t ffiRPC_struct){
+    assert(ffiRPC_struct);
+    return ffiRPC_struct->ht;
+}
+void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct){
+    assert(ffiRPC_struct);
+    return ffiRPC_struct->anti_double_free;
+}
+//========================
+
 
 int ffiRPC_is_pointer(enum ffiRPC_types type){ //return 1 if ffiRPC_type is pointer, 0 if not
     int ret = 0;

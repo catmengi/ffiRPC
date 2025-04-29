@@ -32,13 +32,7 @@ struct ffiRPC_container_element{
     size_t length;
     enum ffiRPC_types type;
 };
-typedef struct{
-    hashtable* ht;
-    hashtable* anti_double_free;  //used to not free elements that have different keys but same data
-
-    atomic_size_t size;
-    atomic_bool run_GC;
-}*ffiRPC_struct_t;
+typedef struct _ffiRPC_struct *ffiRPC_struct_t;
 
 //==================== public API's ===================
 
@@ -56,6 +50,9 @@ int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key); //remove typ
 int ffiRPC_is_pointer(enum ffiRPC_types type);
 void ffiRPC_container_free(struct ffiRPC_container_element* element);
 void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct);
+
+void* ffiRPC_struct_HT(ffiRPC_struct_t ffiRPC_struct);
+void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct);
 
 #define CType_to_ffiRPC(Native_type) _Generic((Native_type),                   \
                                     char                 : FFIRPC_char,        \
@@ -108,20 +105,20 @@ void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct);
     int __ret = 1;\
     assert(key != NULL);\
     if(ffiRPC_struct->run_GC) ffiRPC_struct_cleanup(ffiRPC_struct);\
-    struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
+    struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct_HT(ffiRPC_struct),key);\
     if(element == NULL){\
         element = malloc(sizeof(*element)); assert(element); ffiRPC_struct->size++;\
         C_to_ffiRPC(element,input);\
-        hashtable_set(ffiRPC_struct->ht,strdup(key),element);\
+        hashtable_set(ffiRPC_struct_HT(ffiRPC_struct),strdup(key),element);\
         if(ffiRPC_is_pointer(element->type) && element->type != FFIRPC_string){\
             char NOdoublefree[sizeof(void*) * 2];\
             sprintf(NOdoublefree,"%p",element->data);\
-            if(hashtable_get(ffiRPC_struct->anti_double_free,NOdoublefree) == NULL){\
+            if(hashtable_get(ffiRPC_struct_ADF(ffiRPC_struct),NOdoublefree) == NULL){\
                 struct ffiRPC_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);\
                 GC_copy->data = element->data;\
                 GC_copy->length = element->length;\
                 GC_copy->type = element->type;\
-                hashtable_set(ffiRPC_struct->anti_double_free,strdup(NOdoublefree),GC_copy);\
+                hashtable_set(ffiRPC_struct_ADF(ffiRPC_struct),strdup(NOdoublefree),GC_copy);\
             }\
         }\
         __ret = 0;\
@@ -136,7 +133,7 @@ void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct);
  *         assert(ffiRPC_struct_get(ffiRPC_struct,"check_int",output) == 0);
  *         assert(output == input);
 */
-#define ffiRPC_struct_get(ffiRPC_struct, key, output)({assert(key != NULL);int ret = 1;struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct->ht,key);\
+#define ffiRPC_struct_get(ffiRPC_struct, key, output)({assert(key != NULL);int ret = 1;struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct_HT(ffiRPC_struct),key);\
                                                     if(element != NULL){assert(element->type == CType_to_ffiRPC(output));if(ffiRPC_is_pointer(element->type)){ffiRPC_cast_value(output,(typeof(output))element->data);} else{ffiRPC_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
 
 //=====================================================
