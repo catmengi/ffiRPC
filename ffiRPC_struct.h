@@ -45,6 +45,10 @@ int ffiRPC_struct_unlink(ffiRPC_struct_t ffiRPC_struct, char* key); //remove poi
 int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key); //remove type with key "key" from ffiRPC_struct and free it.
                                                                     //using removed element is undefined behavior because free will be done on next ffiRPC_struct_set or ffiRPC_struct_free
 
+char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_output); //serialises ffiRPC_struct into char*. Len will be outputed into buflen_output
+
+ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf); //unserialise buf created with ffiRPC_struct_serialise
+
 //=====================================================
 
 int ffiRPC_is_pointer(enum ffiRPC_types type);

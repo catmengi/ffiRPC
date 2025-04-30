@@ -1,6 +1,8 @@
 #include "ffiRPC_struct.h"
 #include "hashtable.c/hashtable.h"
+
 #include <stdint.h>
+#include <assert.h>
 
 struct _ffiRPC_struct{
     hashtable* ht;
@@ -59,12 +61,14 @@ void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct){
             if(ffiRPC_struct->anti_double_free->body[i].key != NULL && ffiRPC_struct->anti_double_free->body[i].key != (char*)0xDEAD && ffiRPC_struct->anti_double_free->body[i].value != NULL){
                 size_t refcount = 0; //If it stays zero we remove this entry from anti_double_free
                 struct ffiRPC_container_element* GC_copy = ffiRPC_struct->anti_double_free->body[i].value;
+
                 for(size_t j = 0; j < ffiRPC_struct->ht->capacity; j++){
                     if(ffiRPC_struct->ht->body[j].key != (char*)0xDEAD && ffiRPC_struct->ht->body[j].key != NULL && ffiRPC_struct->ht->body[j].value != NULL){
                         struct ffiRPC_container_element* check_element = ffiRPC_struct->ht->body[j].value;
                         if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
                     }
                 }
+
                 if(refcount == 0){
                     ffiRPC_container_free(GC_copy);
                     free(GC_copy);
@@ -104,6 +108,7 @@ int ffiRPC_struct_unlink(ffiRPC_struct_t ffiRPC_struct, char* key){
 
             free(element); //We should free container BUT NOT internals!
             free(free_key); //since key is strdup() ed we should free it
+            ffiRPC_struct->size--;
             return 0;
         }
     }
@@ -124,6 +129,7 @@ int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key){
                 free(free_key); //since key is strdup() ed we should free it
                 ffiRPC_struct->run_GC = 1; //run GC on next ffiRPC_struct_set
             } else {ffiRPC_container_free(element); free(element); free(free_key);}
+            ffiRPC_struct->size--;
             return 0;
         }
     }
@@ -286,6 +292,65 @@ char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_outp
     free(pre_serialise);
     return buf;
 }
+ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
+    assert(buf);
+
+    ffiRPC_struct_t new = ffiRPC_struct_create();
+    uint64_t u64_parse_len = *(uint64_t*)buf;
+
+    buf += sizeof(uint64_t);
+    struct ffiRPC_serialise_element serialise;
+
+    for(uint64_t i = 0; i < u64_parse_len; i++){
+        serialise.key = buf; buf += strlen(serialise.key) + 1;
+        serialise.type = *buf; buf++;
+        serialise.buflen = *(uint64_t*)buf; buf += sizeof(uint64_t);
+        serialise.buf = buf;
+
+        buf += serialise.buflen;
+        if(serialise.type == FFIRPC_struct){
+            ffiRPC_struct_t unserialised = ffiRPC_struct_unserialise(serialise.buf);
+
+            char NOdoublefree[sizeof(void*) * 2];
+            sprintf(NOdoublefree,"%p",unserialised);
+
+            assert(hashtable_get(new->anti_double_free,NOdoublefree) == NULL); //asserting if element unique!
+
+            struct ffiRPC_container_element* element = malloc(sizeof(*element)); assert(element);
+            struct ffiRPC_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);
+
+            element->data = unserialised;
+            element->type = FFIRPC_struct;
+            element->length = 0;
+            *GC_copy = *element;
+
+            hashtable_set(new->anti_double_free,strdup(NOdoublefree),GC_copy);
+            hashtable_set(new->ht,strdup(serialise.key),element);
+        } else if(serialise.type != FFIRPC_duplicate){
+            struct ffiRPC_container_element* element = malloc(sizeof(*element)); assert(element);
+
+            element->type = serialise.type;
+
+            element->data = malloc(serialise.buflen); assert(serialise.buflen);
+            memcpy(element->data,serialise.buf,serialise.buflen);
+
+            element->length = serialise.buflen;
+
+            hashtable_set(new->ht,strdup(serialise.key),element);
+        } else if(serialise.type == FFIRPC_duplicate){
+            struct ffiRPC_container_element* element = hashtable_get(new->ht,serialise.buf); //using buf because in buf we wrote "key" of original
+            assert(element);
+
+            struct ffiRPC_container_element* DUP_element = malloc(sizeof(*DUP_element)); assert(DUP_element);
+            *DUP_element = *element;
+
+            hashtable_set(new->ht,strdup(serialise.key),DUP_element);
+        }
+        new->size++;
+    }
+    return new;
+}
+
 
 //REMOVE WHEN DONE!
 int main(){
@@ -326,9 +391,38 @@ int main(){
     FILE* wr = fopen("debug_test_output","wra");
     fwrite(buf,buflen,1,wr);
     fclose(wr);
+
+    ffiRPC_struct_t unser = ffiRPC_struct_unserialise(buf);
+
+    ffiRPC_struct_t unser_C1;
+    ffiRPC_struct_get(unser,"0",unser_C1);
+    ffiRPC_struct_t unser_C2;
+    ffiRPC_struct_get(unser,"TI0",unser_C2);
+
+    for(int i = 1; i < 5000; i++){
+        char K[1000000];
+        ffiRPC_struct_t C;
+        sprintf(K,"%d",i);
+        ffiRPC_struct_get(unser,K,C);
+        assert(C == unser_C1);
+
+        char* S;
+        assert(ffiRPC_struct_get(C,"1234",S) == 0);
+        assert(strcmp(S,"some data that should be in this very struct!") == 0);
+    }
+    for(int i = 1; i < 5000; i++){
+        char K[1000000];
+        ffiRPC_struct_t C;
+        sprintf(K,"TI%d",i);
+        ffiRPC_struct_get(unser,K,C);
+        assert(C == unser_C2);
+    }
+
     free(buf);
 
+    // *(int*)1 = 0;
     ffiRPC_struct_free(ffiRPC_struct);
+    ffiRPC_struct_free(unser);
 
 }
 //=================
