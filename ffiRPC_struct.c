@@ -1,7 +1,6 @@
 #include "ffiRPC_struct.h"
 #include "hashtable.c/hashtable.h"
 
-#include <complex.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <assert.h>
