@@ -578,11 +578,12 @@ int main(){
     free(buf);
 
     // *(int*)1 = 0;
+    size_t UN = 0;
+    free(ffiRPC_struct_serialise(copy,&UN));
     ffiRPC_struct_free(ffiRPC_struct_copy(ffiRPC_struct));
     ffiRPC_struct_free(ffiRPC_struct);
     ffiRPC_struct_free(unser);
 
-    size_t UN = 0;
     free(ffiRPC_struct_serialise(copy,&UN));
     ffiRPC_struct_free(copy);
 
