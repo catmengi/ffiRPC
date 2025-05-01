@@ -49,6 +49,8 @@ char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_outp
 
 ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf); //unserialise buf created with ffiRPC_struct_serialise
 
+ffiRPC_struct_t ffiRPC_struct_copy(ffiRPC_struct_t original); //returns a copy of "original"
+
 //=====================================================
 
 int ffiRPC_is_pointer(enum ffiRPC_types type);

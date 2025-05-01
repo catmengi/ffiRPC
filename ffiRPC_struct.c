@@ -1,15 +1,30 @@
 #include "ffiRPC_struct.h"
 #include "hashtable.c/hashtable.h"
 
+#include <complex.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdlib.h>
 
 struct _ffiRPC_struct{
     hashtable* ht;
+
+    hashtable** refcount_copys;
+    atomic_size_t refcount_copys_len;
+    atomic_size_t refcount_copys_index;
+
     hashtable* anti_double_free;  //used to not free elements that have different keys but same data
+    atomic_size_t* ADF_refcount;
+
+    ffiRPC_struct_t* copys;
+    atomic_size_t copys_len;
+    atomic_size_t copys_index;
 
     atomic_size_t size;
     atomic_bool run_GC;
+
+    ffiRPC_struct_t parent;
 };
 
 ffiRPC_struct_t ffiRPC_struct_create(void){
@@ -19,8 +34,21 @@ ffiRPC_struct_t ffiRPC_struct_create(void){
     ffiRPC_struct->ht = hashtable_create();
     ffiRPC_struct->anti_double_free = hashtable_create();
 
+    ffiRPC_struct->refcount_copys_len = 4;
+    ffiRPC_struct->refcount_copys_index = 0;
+    ffiRPC_struct->refcount_copys = calloc(ffiRPC_struct->refcount_copys_len,sizeof(*ffiRPC_struct->refcount_copys)); assert(ffiRPC_struct->refcount_copys);
+    ffiRPC_struct->refcount_copys[ffiRPC_struct->refcount_copys_index++] = ffiRPC_struct->ht;
+
+    ffiRPC_struct->ADF_refcount = malloc(sizeof(*ffiRPC_struct->ADF_refcount)); assert(ffiRPC_struct->ADF_refcount);
+    *ffiRPC_struct->ADF_refcount = 1;
+
+    ffiRPC_struct->copys_len = 0;
+    ffiRPC_struct->copys_index = 0;
+    ffiRPC_struct->copys = NULL;
+
     ffiRPC_struct->size = 0;
     ffiRPC_struct->run_GC = 0;
+    ffiRPC_struct->parent = NULL;
 
     return ffiRPC_struct;
 }
@@ -62,10 +90,14 @@ void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct){
                 size_t refcount = 0; //If it stays zero we remove this entry from anti_double_free
                 struct ffiRPC_container_element* GC_copy = ffiRPC_struct->anti_double_free->body[i].value;
 
-                for(size_t j = 0; j < ffiRPC_struct->ht->capacity; j++){
-                    if(ffiRPC_struct->ht->body[j].key != (char*)0xDEAD && ffiRPC_struct->ht->body[j].key != NULL && ffiRPC_struct->ht->body[j].value != NULL){
-                        struct ffiRPC_container_element* check_element = ffiRPC_struct->ht->body[j].value;
-                        if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
+                for(size_t r = 0; r < ffiRPC_struct->refcount_copys_index; r++){
+                    for(size_t j = 0; j < ffiRPC_struct->refcount_copys[r]->capacity; j++){
+                        if(ffiRPC_struct->refcount_copys[r]->body[j].key != (char*)0xDEAD &&
+                            ffiRPC_struct->refcount_copys[r]->body[j].key != NULL && ffiRPC_struct->refcount_copys[r]->body[j].value != NULL){
+
+                            struct ffiRPC_container_element* check_element = ffiRPC_struct->refcount_copys[r]->body[j].value;
+                            if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
+                        }
                     }
                 }
 
@@ -92,8 +124,46 @@ void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct){
          }
     }
     ffiRPC_struct_cleanup(ffiRPC_struct); //need to be sure we removed all elements
-    hashtable_destroy(ffiRPC_struct->anti_double_free);
+
+    if(--(*ffiRPC_struct->ADF_refcount) == 0) {free(ffiRPC_struct->ADF_refcount);hashtable_destroy(ffiRPC_struct->anti_double_free);}
     hashtable_destroy(ffiRPC_struct->ht);
+
+    for(size_t i = 0;  i < ffiRPC_struct->copys_index; i++){
+        ffiRPC_struct_t copy = ffiRPC_struct->copys[i];
+        if(copy){
+            for(size_t j = 0; j < copy->refcount_copys_index; j++){
+                if(copy->refcount_copys[j] == ffiRPC_struct->ht){
+                    assert(j != 0); //self copy?
+                    copy->refcount_copys[j] = NULL;
+                    if(j == copy->refcount_copys_index - 1) copy->refcount_copys_index--;
+                }
+            }
+        }
+    }
+    if(ffiRPC_struct->parent){
+        for(size_t j = 0; j < ffiRPC_struct->parent->refcount_copys_index; j++){
+            if(ffiRPC_struct->parent->refcount_copys[j] == ffiRPC_struct->ht){
+                assert(j != 0); //self copy?
+                ffiRPC_struct->parent->refcount_copys[j] = NULL;
+                if(j == ffiRPC_struct->parent->refcount_copys_index - 1) ffiRPC_struct->parent->refcount_copys_index--;
+            }
+        }
+        for(size_t i = 0; i < ffiRPC_struct->parent->copys_index; i++){
+            if(ffiRPC_struct->parent->copys[i] == ffiRPC_struct){
+                ffiRPC_struct->parent->copys[i] = NULL;
+                if(ffiRPC_struct->parent->copys_index - 1 == i) ffiRPC_struct->parent->copys_index--;
+            }
+        }
+    } else {
+        for(size_t i = 0; i < ffiRPC_struct->copys_index; i++){
+            ffiRPC_struct_t copy = ffiRPC_struct->copys[i];
+            if(copy){
+                copy->parent = NULL;
+            }
+        }
+    }
+    free(ffiRPC_struct->copys);
+    free(ffiRPC_struct->refcount_copys);
     free(ffiRPC_struct);
 }
 
@@ -308,8 +378,14 @@ ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
         serialise.buf = buf;
 
         buf += serialise.buflen;
-        if(serialise.type == FFIRPC_struct){
-            ffiRPC_struct_t unserialised = ffiRPC_struct_unserialise(serialise.buf);
+        if(ffiRPC_is_pointer(serialise.type) && serialise.type != FFIRPC_string){
+            void* unserialised = NULL;
+            switch(serialise.type){
+                case FFIRPC_struct:
+                    unserialised = ffiRPC_struct_unserialise(serialise.buf);
+                    break;
+                default: break; //UNKNOWN TYPE, NEED TO DIE
+            }
 
             char NOdoublefree[sizeof(void*) * 2];
             sprintf(NOdoublefree,"%p",unserialised);
@@ -320,7 +396,7 @@ ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
             struct ffiRPC_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);
 
             element->data = unserialised;
-            element->type = FFIRPC_struct;
+            element->type = serialise.type;
             element->length = 0;
             *GC_copy = *element;
 
@@ -351,6 +427,59 @@ ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
     return new;
 }
 
+#define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
+
+ffiRPC_struct_t ffiRPC_struct_copy(ffiRPC_struct_t original){
+    ffiRPC_struct_t copy = ffiRPC_struct_create();
+    copy->parent = original;
+
+    copy->ht->capacity = original->ht->capacity;
+    copy->ht->size = original->ht->size;
+    assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
+    memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
+
+    for(size_t i = 0; i <copy->ht->capacity; i++){
+        if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
+            copy->ht->body[i].key = strdup(copy->ht->body[i].key); //recoping keys because it WILL cause double-free if we not done this
+            copy->ht->body[i].value = copy((struct ffiRPC_container_element*)copy->ht->body[i].value);
+
+            struct ffiRPC_container_element* element = copy->ht->body[i].value;
+            if(!ffiRPC_is_pointer(element->type) || element->type == FFIRPC_string){
+                void* tmp = malloc(element->length); assert(tmp);
+                memcpy(tmp,element->data,element->length);
+                element->data = tmp;
+            }
+        }
+    }
+
+    hashtable_destroy(copy->anti_double_free);
+    copy->anti_double_free = original->anti_double_free;
+
+    free(copy->ADF_refcount);
+    copy->ADF_refcount = original->ADF_refcount;
+    (*copy->ADF_refcount)++;
+
+    if(original->refcount_copys_len - 1 == original->refcount_copys_index){
+        original->refcount_copys_len += (original->refcount_copys_len / 2 == 0 ? 1 : original->refcount_copys_len / 2 );
+        assert((original->refcount_copys = realloc(original->refcount_copys, original->refcount_copys_len * sizeof(*original->refcount_copys))));
+    }
+    original->refcount_copys[original->refcount_copys_index++] = copy->ht;
+    copy->refcount_copys[copy->refcount_copys_index++] = original->ht;
+
+    if(original->copys == NULL){
+        original->copys_len = 4;
+        original->copys_index = 0;
+        original->copys = malloc(original->copys_len * sizeof(*original->copys)); assert(original->copys);
+    }
+    if(original->copys_len - 1 == original->copys_index){
+        original->copys_len += (original->copys_len / 2 == 0 ? 1 : original->copys_len / 2 );
+        assert((original->copys = realloc(original->copys,original->copys_len * sizeof(*original->copys))));
+    }
+    original->copys[original->copys_index++] = copy;
+
+    return copy;
+}
+
 
 //REMOVE WHEN DONE!
 int main(){
@@ -360,14 +489,13 @@ int main(){
     ffiRPC_struct_t DFC = ffiRPC_struct_create();
     ffiRPC_struct_set(ffiRPC_struct,"check_int",input);
     ffiRPC_struct_set(ffiRPC_struct,"check_string",(char*)"test 1234567890000000000");
+    char* K = malloc(10000);
     for(int i = 0; i < 5000; i++){
-        char K[1000000];
         sprintf(K,"%d",i);
         ffiRPC_struct_set(ffiRPC_struct,K,DFC);
     }
     ffiRPC_struct_t DFC2 = ffiRPC_struct_create();
     for(int i = 0; i < 5000; i++){
-        char K[1000000];
         sprintf(K,"TI%d",i);
         ffiRPC_struct_set(ffiRPC_struct,K,DFC2);
     }
@@ -393,6 +521,7 @@ int main(){
     fclose(wr);
 
     ffiRPC_struct_t unser = ffiRPC_struct_unserialise(buf);
+    ffiRPC_struct_t copy = ffiRPC_struct_copy(ffiRPC_struct);
 
     ffiRPC_struct_t unser_C1;
     ffiRPC_struct_get(unser,"0",unser_C1);
@@ -400,7 +529,6 @@ int main(){
     ffiRPC_struct_get(unser,"TI0",unser_C2);
 
     for(int i = 1; i < 5000; i++){
-        char K[1000000];
         ffiRPC_struct_t C;
         sprintf(K,"%d",i);
         ffiRPC_struct_get(unser,K,C);
@@ -411,18 +539,37 @@ int main(){
         assert(strcmp(S,"some data that should be in this very struct!") == 0);
     }
     for(int i = 1; i < 5000; i++){
-        char K[1000000];
         ffiRPC_struct_t C;
         sprintf(K,"TI%d",i);
         ffiRPC_struct_get(unser,K,C);
         assert(C == unser_C2);
     }
 
+    for(int i = 1; i < 5000; i++){
+        ffiRPC_struct_t C;
+        sprintf(K,"%d",i);
+        ffiRPC_struct_get(copy,K,C);
+
+        char* S;
+        assert(ffiRPC_struct_get(C,"1234",S) == 0);
+        assert(strcmp(S,"some data that should be in this very struct!") == 0);
+        ffiRPC_struct_remove(copy,K);
+    }
+    for(int i = 1; i < 5000; i++){
+        ffiRPC_struct_t C;
+        sprintf(K,"TI%d",i);
+        ffiRPC_struct_get(copy,K,C);
+        ffiRPC_struct_remove(copy,K);
+    }
+
     free(buf);
 
     // *(int*)1 = 0;
+    ffiRPC_struct_free(ffiRPC_struct_copy(ffiRPC_struct));
     ffiRPC_struct_free(ffiRPC_struct);
     ffiRPC_struct_free(unser);
+    ffiRPC_struct_free(copy);
+    free(K);
 
 }
 //=================
