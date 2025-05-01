@@ -1,5 +1,6 @@
 #include "ffiRPC_struct.h"
 #include "hashtable.c/hashtable.h"
+#include "sc_queue.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@ struct _ffiRPC_struct{
     hashtable** refcount_copys;
     atomic_size_t refcount_copys_len;
     atomic_size_t refcount_copys_index;
+    struct sc_queue_int REF_freed;
 
     hashtable* anti_double_free;  //used to not free elements that have different keys but same data
     atomic_size_t* ADF_refcount;
@@ -19,6 +21,7 @@ struct _ffiRPC_struct{
     ffiRPC_struct_t* copys;
     atomic_size_t copys_len;
     atomic_size_t copys_index;
+    struct sc_queue_int CPY_freed;
 
     atomic_size_t size;
     atomic_bool run_GC;
@@ -48,6 +51,9 @@ ffiRPC_struct_t ffiRPC_struct_create(void){
     ffiRPC_struct->size = 0;
     ffiRPC_struct->run_GC = 0;
     ffiRPC_struct->parent = NULL;
+
+    sc_queue_init(&ffiRPC_struct->CPY_freed);
+    sc_queue_init(&ffiRPC_struct->REF_freed);
 
     return ffiRPC_struct;
 }
@@ -90,12 +96,14 @@ void ffiRPC_struct_cleanup(ffiRPC_struct_t ffiRPC_struct){
                 struct ffiRPC_container_element* GC_copy = ffiRPC_struct->anti_double_free->body[i].value;
 
                 for(size_t r = 0; r < ffiRPC_struct->refcount_copys_index; r++){
-                    for(size_t j = 0; j < ffiRPC_struct->refcount_copys[r]->capacity; j++){
-                        if(ffiRPC_struct->refcount_copys[r]->body[j].key != (char*)0xDEAD &&
-                            ffiRPC_struct->refcount_copys[r]->body[j].key != NULL && ffiRPC_struct->refcount_copys[r]->body[j].value != NULL){
+                    if(ffiRPC_struct->refcount_copys[r]){
+                        for(size_t j = 0; j < ffiRPC_struct->refcount_copys[r]->capacity; j++){
+                            if(ffiRPC_struct->refcount_copys[r]->body[j].key != (char*)0xDEAD &&
+                                ffiRPC_struct->refcount_copys[r]->body[j].key != NULL && ffiRPC_struct->refcount_copys[r]->body[j].value != NULL){
 
-                            struct ffiRPC_container_element* check_element = ffiRPC_struct->refcount_copys[r]->body[j].value;
-                            if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
+                                struct ffiRPC_container_element* check_element = ffiRPC_struct->refcount_copys[r]->body[j].value;
+                                if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
+                            }
                         }
                     }
                 }
@@ -132,9 +140,9 @@ void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct){
         if(copy){
             for(size_t j = 0; j < copy->refcount_copys_index; j++){
                 if(copy->refcount_copys[j] == ffiRPC_struct->ht){
-                    assert(j != 0); //self copy?
+                    assert(j != 0); //sanity check
                     copy->refcount_copys[j] = NULL;
-                    if(j == copy->refcount_copys_index - 1) copy->refcount_copys_index--;
+                    sc_queue_add_last(&copy->REF_freed,j);
                 }
             }
         }
@@ -142,25 +150,26 @@ void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct){
     if(ffiRPC_struct->parent){
         for(size_t j = 0; j < ffiRPC_struct->parent->refcount_copys_index; j++){
             if(ffiRPC_struct->parent->refcount_copys[j] == ffiRPC_struct->ht){
-                assert(j != 0); //self copy?
+                assert(j != 0); //sanity check
                 ffiRPC_struct->parent->refcount_copys[j] = NULL;
-                if(j == ffiRPC_struct->parent->refcount_copys_index - 1) ffiRPC_struct->parent->refcount_copys_index--;
+                sc_queue_add_last(&ffiRPC_struct->parent->REF_freed,j);
             }
         }
         for(size_t i = 0; i < ffiRPC_struct->parent->copys_index; i++){
             if(ffiRPC_struct->parent->copys[i] == ffiRPC_struct){
                 ffiRPC_struct->parent->copys[i] = NULL;
-                if(ffiRPC_struct->parent->copys_index - 1 == i) ffiRPC_struct->parent->copys_index--;
+                sc_queue_add_last(&ffiRPC_struct->parent->CPY_freed,i);
             }
         }
     } else {
         for(size_t i = 0; i < ffiRPC_struct->copys_index; i++){
             ffiRPC_struct_t copy = ffiRPC_struct->copys[i];
-            if(copy){
-                copy->parent = NULL;
-            }
+            if(copy) copy->parent = NULL;
         }
     }
+    sc_queue_term(&ffiRPC_struct->REF_freed);
+    sc_queue_term(&ffiRPC_struct->CPY_freed);
+
     free(ffiRPC_struct->copys);
     free(ffiRPC_struct->refcount_copys);
     free(ffiRPC_struct);
@@ -458,11 +467,17 @@ ffiRPC_struct_t ffiRPC_struct_copy(ffiRPC_struct_t original){
     copy->ADF_refcount = original->ADF_refcount;
     (*copy->ADF_refcount)++;
 
-    if(original->refcount_copys_len - 1 == original->refcount_copys_index){
-        original->refcount_copys_len += (original->refcount_copys_len / 2 == 0 ? 1 : original->refcount_copys_len / 2 );
-        assert((original->refcount_copys = realloc(original->refcount_copys, original->refcount_copys_len * sizeof(*original->refcount_copys))));
-    }
-    original->refcount_copys[original->refcount_copys_index++] = copy->ht;
+    size_t index = 0;
+    if(sc_queue_size(&original->REF_freed) == 0){
+        if(original->refcount_copys_len - 1 == original->refcount_copys_index){
+            original->refcount_copys_len += (original->refcount_copys_len / 2 == 0 ? 1 : original->refcount_copys_len / 2 );
+            assert((original->refcount_copys = realloc(original->refcount_copys, original->refcount_copys_len * sizeof(*original->refcount_copys))));
+        }
+        index = original->refcount_copys_index++;
+    } else index = sc_queue_del_first(&original->REF_freed);
+
+    original->refcount_copys[index] = copy->ht;
+
     copy->refcount_copys[copy->refcount_copys_index++] = original->ht;
 
     if(original->copys == NULL){
@@ -470,11 +485,15 @@ ffiRPC_struct_t ffiRPC_struct_copy(ffiRPC_struct_t original){
         original->copys_index = 0;
         original->copys = malloc(original->copys_len * sizeof(*original->copys)); assert(original->copys);
     }
-    if(original->copys_len - 1 == original->copys_index){
-        original->copys_len += (original->copys_len / 2 == 0 ? 1 : original->copys_len / 2 );
-        assert((original->copys = realloc(original->copys,original->copys_len * sizeof(*original->copys))));
-    }
-    original->copys[original->copys_index++] = copy;
+    size_t cpy_index = 0;
+    if(sc_queue_size(&original->CPY_freed) == 0){
+        if(original->copys_len - 1 == original->copys_index){
+            original->copys_len += (original->copys_len / 2 == 0 ? 1 : original->copys_len / 2 );
+            assert((original->copys = realloc(original->copys,original->copys_len * sizeof(*original->copys))));
+        }
+        cpy_index = original->copys_index++;
+    } else cpy_index = sc_queue_del_first(&original->CPY_freed);
+    original->copys[cpy_index] = copy;
 
     return copy;
 }
@@ -528,7 +547,7 @@ int main(){
     ffiRPC_struct_get(unser,"TI0",unser_C2);
 
     for(int i = 1; i < 5000; i++){
-        ffiRPC_struct_t C;
+        ffiRPC_struct_t C = NULL;
         sprintf(K,"%d",i);
         ffiRPC_struct_get(unser,K,C);
         assert(C == unser_C1);
@@ -538,14 +557,14 @@ int main(){
         assert(strcmp(S,"some data that should be in this very struct!") == 0);
     }
     for(int i = 1; i < 5000; i++){
-        ffiRPC_struct_t C;
+        ffiRPC_struct_t C = NULL;
         sprintf(K,"TI%d",i);
         ffiRPC_struct_get(unser,K,C);
         assert(C == unser_C2);
     }
 
     for(int i = 1; i < 5000; i++){
-        ffiRPC_struct_t C;
+        ffiRPC_struct_t C = NULL;
         sprintf(K,"%d",i);
         ffiRPC_struct_get(copy,K,C);
 
@@ -555,7 +574,7 @@ int main(){
         ffiRPC_struct_remove(copy,K);
     }
     for(int i = 1; i < 5000; i++){
-        ffiRPC_struct_t C;
+        ffiRPC_struct_t C = NULL;
         sprintf(K,"TI%d",i);
         ffiRPC_struct_get(copy,K,C);
         ffiRPC_struct_remove(copy,K);
