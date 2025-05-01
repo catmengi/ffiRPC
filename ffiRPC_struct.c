@@ -146,18 +146,22 @@ void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct){
         }
     }
     if(ffiRPC_struct->parent){
-        for(size_t j = 0; j < ffiRPC_struct->parent->refcount_copys_index; j++){
-            if(ffiRPC_struct->parent->refcount_copys[j] == ffiRPC_struct->ht){
-                assert(j != 0); //sanity check
-                ffiRPC_struct->parent->refcount_copys[j] = NULL;
-                sc_queue_add_last(&ffiRPC_struct->parent->REF_freed,j);
+        ffiRPC_struct_t current = ffiRPC_struct->parent;
+        while(current){
+            for(size_t j = 0; j < current->refcount_copys_index; j++){
+                if(current->refcount_copys[j] == ffiRPC_struct->ht){
+                    assert(j != 0); //sanity check
+                    current->refcount_copys[j] = NULL;
+                    sc_queue_add_last(&current->REF_freed,j);
+                }
             }
-        }
-        for(size_t i = 0; i < ffiRPC_struct->parent->copys_index; i++){
-            if(ffiRPC_struct->parent->copys[i] == ffiRPC_struct){
-                ffiRPC_struct->parent->copys[i] = NULL;
-                sc_queue_add_last(&ffiRPC_struct->parent->CPY_freed,i);
+            for(size_t i = 0; i < current->copys_index; i++){
+                if(current->copys[i] == ffiRPC_struct){
+                    current->copys[i] = NULL;
+                    sc_queue_add_last(&current->CPY_freed,i);
+                }
             }
+            current = current->parent;
         }
     } else {
         for(size_t i = 0; i < ffiRPC_struct->copys_index; i++){
@@ -462,34 +466,41 @@ ffiRPC_struct_t ffiRPC_struct_copy(ffiRPC_struct_t original){
     copy->ADF_refcount = original->ADF_refcount;
     (*copy->ADF_refcount)++;
 
-    size_t index = 0;
-    if(sc_queue_size(&original->REF_freed) == 0){
-        if(original->refcount_copys_len - 1 == original->refcount_copys_index){
-            original->refcount_copys_len += (original->refcount_copys_len / 2 == 0 ? 1 : original->refcount_copys_len / 2 );
-            assert((original->refcount_copys = realloc(original->refcount_copys, original->refcount_copys_len * sizeof(*original->refcount_copys))));
+    ffiRPC_struct_t current = original;
+    while(current){
+        size_t index = 0;
+        if(sc_queue_size(&current->REF_freed) == 0){
+            if(current->refcount_copys_len - 1 == current->refcount_copys_index){
+                current->refcount_copys_len += (current->refcount_copys_len / 2 == 0 ? 1 : current->refcount_copys_len / 2 );
+                assert((current->refcount_copys = realloc(current->refcount_copys, current->refcount_copys_len * sizeof(*current->refcount_copys))));
+            }
+            index = current->refcount_copys_index++;
+        } else index = sc_queue_del_first(&current->REF_freed);
+
+        current->refcount_copys[index] = copy->ht;
+
+        if(copy->refcount_copys_len - 1 == copy->copys_index){
+            copy->refcount_copys_len += (copy->refcount_copys_len / 2 == 0 ? 1 : copy->refcount_copys_len / 2 );
+            assert((copy->refcount_copys = realloc(copy->refcount_copys, copy->refcount_copys_len * sizeof(*copy->refcount_copys))));
         }
-        index = original->refcount_copys_index++;
-    } else index = sc_queue_del_first(&original->REF_freed);
+        copy->refcount_copys[copy->refcount_copys_index++] = current->ht;
 
-    original->refcount_copys[index] = copy->ht;
-
-    copy->refcount_copys[copy->refcount_copys_index++] = original->ht;
-
-    if(original->copys == NULL){
-        original->copys_len = 4;
-        original->copys_index = 0;
-        original->copys = malloc(original->copys_len * sizeof(*original->copys)); assert(original->copys);
+        if(current->copys == NULL){
+            current->copys_len = 4;
+            current->copys_index = 0;
+            current->copys = malloc(current->copys_len * sizeof(*current->copys)); assert(current->copys);
+        }
+        size_t cpy_index = 0;
+        if(sc_queue_size(&current->CPY_freed) == 0){
+            if(current->copys_len - 1 == current->copys_index){
+                current->copys_len += (current->copys_len / 2 == 0 ? 1 : current->copys_len / 2 );
+                assert((current->copys = realloc(current->copys,current->copys_len * sizeof(*current->copys))));
+            }
+            cpy_index = current->copys_index++;
+        } else cpy_index = sc_queue_del_first(&current->CPY_freed);
+        current->copys[cpy_index] = copy;
+        current = current->parent;
     }
-    size_t cpy_index = 0;
-    if(sc_queue_size(&original->CPY_freed) == 0){
-        if(original->copys_len - 1 == original->copys_index){
-            original->copys_len += (original->copys_len / 2 == 0 ? 1 : original->copys_len / 2 );
-            assert((original->copys = realloc(original->copys,original->copys_len * sizeof(*original->copys))));
-        }
-        cpy_index = original->copys_index++;
-    } else cpy_index = sc_queue_del_first(&original->CPY_freed);
-    original->copys[cpy_index] = copy;
-
     return copy;
 }
 
@@ -581,11 +592,15 @@ int main(){
     size_t UN = 0;
     free(ffiRPC_struct_serialise(copy,&UN));
     ffiRPC_struct_free(ffiRPC_struct_copy(ffiRPC_struct));
-    ffiRPC_struct_free(ffiRPC_struct);
     ffiRPC_struct_free(unser);
 
     free(ffiRPC_struct_serialise(copy,&UN));
+    ffiRPC_struct_t CC = ffiRPC_struct_copy(copy);
+
     ffiRPC_struct_free(copy);
+    ffiRPC_struct_free(ffiRPC_struct);
+    ffiRPC_struct_free(CC);
+
 
     free(K);
 
