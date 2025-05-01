@@ -84,10 +84,10 @@ void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct);
     if(ffiRPC_is_pointer(element->type)){\
         void* ptr = NULL;\
         void* cpy_varV = (void*)(uint64_t)var;\
-        if(element->type == FFIRPC_string) {ptr = strdup(cpy_varV); assert(ptr);}\
+        element->length = 0;\
+        if(element->type == FFIRPC_string) {ptr = strdup(cpy_varV); assert(ptr); element->length = strlen(ptr) + 1;}\
         else ptr = cpy_varV;\
         element->data = ptr;\
-        element->length = 0;\
     } else {\
         typeof(var) cpy_var = var;\
         element->data = malloc(sizeof(cpy_var));\
@@ -113,7 +113,7 @@ void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct);
     if(ffiRPC_struct->run_GC) ffiRPC_struct_cleanup(ffiRPC_struct);\
     struct ffiRPC_container_element* element = hashtable_get(ffiRPC_struct_HT(ffiRPC_struct),key);\
     if(element == NULL){\
-        element = malloc(sizeof(*element)); assert(element); ffiRPC_struct->size++;\
+        element = malloc(sizeof(*element)); assert(element);\
         C_to_ffiRPC(element,input);\
         hashtable_set(ffiRPC_struct_HT(ffiRPC_struct),strdup(key),element);\
         if(ffiRPC_is_pointer(element->type) && element->type != FFIRPC_string){\

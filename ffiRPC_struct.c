@@ -23,7 +23,6 @@ struct _ffiRPC_struct{
     atomic_size_t copys_index;
     struct sc_queue_int CPY_freed;
 
-    atomic_size_t size;
     atomic_bool run_GC;
 
     ffiRPC_struct_t parent;
@@ -48,7 +47,6 @@ ffiRPC_struct_t ffiRPC_struct_create(void){
     ffiRPC_struct->copys_index = 0;
     ffiRPC_struct->copys = NULL;
 
-    ffiRPC_struct->size = 0;
     ffiRPC_struct->run_GC = 0;
     ffiRPC_struct->parent = NULL;
 
@@ -186,7 +184,6 @@ int ffiRPC_struct_unlink(ffiRPC_struct_t ffiRPC_struct, char* key){
 
             free(element); //We should free container BUT NOT internals!
             free(free_key); //since key is strdup() ed we should free it
-            ffiRPC_struct->size--;
             return 0;
         }
     }
@@ -207,7 +204,6 @@ int ffiRPC_struct_remove(ffiRPC_struct_t ffiRPC_struct, char* key){
                 free(free_key); //since key is strdup() ed we should free it
                 ffiRPC_struct->run_GC = 1; //run GC on next ffiRPC_struct_set
             } else {ffiRPC_container_free(element); free(element); free(free_key);}
-            ffiRPC_struct->size--;
             return 0;
         }
     }
@@ -287,7 +283,7 @@ char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_outp
     dupless_ht->body = malloc(dupless_ht->capacity * sizeof(*dupless_ht->body)); assert(dupless_ht);
     memcpy(dupless_ht->body,ffiRPC_struct->ht->body,sizeof(hashtable_entry) * dupless_ht->capacity);
 
-    size_t dups_len = 0; size_t serialise_elements_len = ffiRPC_struct->size; //we should have space for dublicates but they will be serialised in other manner
+    size_t dups_len = 0; size_t serialise_elements_len = ffiRPC_struct->ht->size; //we should have space for dublicates but they will be serialised in other manner
     struct ffiRPC_struct_duplicate_info* dups = ffiRPC_struct_found_duplicates(ffiRPC_struct,&dups_len);
 
     for(size_t i = 0; i < dups_len; i++){
@@ -430,7 +426,6 @@ ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
 
             hashtable_set(new->ht,strdup(serialise.key),DUP_element);
         }
-        new->size++;
     }
     return new;
 }
@@ -586,7 +581,11 @@ int main(){
     ffiRPC_struct_free(ffiRPC_struct_copy(ffiRPC_struct));
     ffiRPC_struct_free(ffiRPC_struct);
     ffiRPC_struct_free(unser);
+
+    size_t UN = 0;
+    free(ffiRPC_struct_serialise(copy,&UN));
     ffiRPC_struct_free(copy);
+
     free(K);
 
 }
