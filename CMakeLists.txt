@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.15)
 
 project(FFIRPC)
 
-set(SRC_LIBS_DIR libs)
 set(SRC_DIR src)
 set(FFIRPC_BIN ${PROJECT_NAME})
 
