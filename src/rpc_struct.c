@@ -27,7 +27,7 @@ struct _rpc_struct{
     atomic_bool run_GC;
 
     rpc_struct_t parent;
-};
+}__attribute__((packed, aligned(sizeof(void*))));
 
 rpc_struct_t rpc_struct_create(void){
     rpc_struct_t rpc_struct = (rpc_struct_t)malloc(sizeof(*rpc_struct));
