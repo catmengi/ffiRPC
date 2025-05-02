@@ -78,8 +78,8 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
                                     float                : RPC_double,      \
                                     double               : RPC_double,      \
                                     char*                : RPC_string,      \
-                                    rpc_struct_t      : RPC_struct,      \
-                                    rpc_sizedbuf_t    : RPC_sizedbuf,    \
+                                    rpc_struct_t         : RPC_struct,      \
+                                    rpc_sizedbuf_t       : RPC_sizedbuf,    \
                                     default              : RPC_unknown      \
 )
 
