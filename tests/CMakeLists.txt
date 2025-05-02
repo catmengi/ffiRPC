@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(i_love_gay_porno)
+project(donkey)
 
 
 add_executable(${PROJECT_NAME} test.c)

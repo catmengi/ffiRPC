@@ -1,7 +1,7 @@
-#include <rpc_struct.h>
-#include <rpc_sizedbuf.h>
-#include <hashtable.h>
-#include <sc_queue.h>
+#include "../include/rpc_struct.h"
+#include "../include/rpc_sizedbuf.h"
+#include "../include/hashtable.h"
+#include "../include/sc_queue.h"
 
 #include <stdatomic.h>
 #include <stdint.h>

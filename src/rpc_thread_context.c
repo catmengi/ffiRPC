@@ -1,5 +1,5 @@
-#include <rpc_thread_context.h>
-#include <hashtable.h>
+#include "../include/rpc_thread_context.h"
+#include "../include/hashtable.h"
 
 #include <assert.h>
 #include <pthread.h>

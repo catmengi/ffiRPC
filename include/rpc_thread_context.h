@@ -1,7 +1,7 @@
 #include <pthread.h>
 #include <stdio.h>
 
-#include <rpc_struct.h>
+#include "rpc_struct.h"
 
 void rpc_init_thread_context(); //init per-thread rpc_struct holder
 void rpc_destroy_thread_context(); //destroy per-thread rpc_struct holder
