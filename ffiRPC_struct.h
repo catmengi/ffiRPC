@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -7,6 +9,7 @@
 #include <stdio.h>
 
 #include "hashtable.c/hashtable.h"
+#include "ffiRPC_sizedbuf.h"
 
 enum ffiRPC_types{
     FFIRPC_char = 1,
@@ -22,6 +25,7 @@ enum ffiRPC_types{
 
     FFIRPC_string,
     FFIRPC_struct,
+    FFIRPC_sizedbuf,
 
     FFIRPC_unknown,
     FFIRPC_duplicate,
@@ -74,6 +78,7 @@ void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct);
                                     double               : FFIRPC_double,      \
                                     char*                : FFIRPC_string,      \
                                     ffiRPC_struct_t      : FFIRPC_struct,      \
+                                    ffiRPC_sizedbuf_t    : FFIRPC_sizedbuf,    \
                                     default              : FFIRPC_unknown      \
 )
 

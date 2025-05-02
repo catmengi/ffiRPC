@@ -1,4 +1,5 @@
 #include "ffiRPC_struct.h"
+#include "ffiRPC_sizedbuf.h"
 #include "hashtable.c/hashtable.h"
 #include "sc_queue.h"
 
@@ -70,7 +71,7 @@ void* ffiRPC_struct_ADF(ffiRPC_struct_t ffiRPC_struct){
 
 int ffiRPC_is_pointer(enum ffiRPC_types type){ //return 1 if ffiRPC_type is pointer, 0 if not
     int ret = 0;
-    if(type == FFIRPC_struct || type == FFIRPC_string || type == FFIRPC_unknown) ret = 1;
+    if(type == FFIRPC_struct || type == FFIRPC_string || type == FFIRPC_sizedbuf ||type == FFIRPC_unknown) ret = 1;
 
     return ret;
 }
@@ -80,6 +81,9 @@ void ffiRPC_container_free(struct ffiRPC_container_element* element){
         switch(element->type){
             case FFIRPC_struct:
                 ffiRPC_struct_free(element->data);
+                break;
+            case FFIRPC_sizedbuf:
+                ffiRPC_sizedbuf_free(element->data);
                 break;
             default: break; //ffiRPC_unknown should not be freed
         }
@@ -307,6 +311,9 @@ char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_outp
                     case FFIRPC_struct:
                         pre_serialise[PS_index].buf = ffiRPC_struct_serialise(element->data,&pre_serialise[PS_index].buflen);
                         break;
+                    case FFIRPC_sizedbuf:
+                        pre_serialise[PS_index].buf = ffiRPC_sizedbuf_serialise(element->data,&pre_serialise[PS_index].buflen);
+                        break;
                     case FFIRPC_string:
                         pre_serialise[PS_index].buf = element->data;
                         pre_serialise[PS_index].buflen = strlen(element->data) + 1;
@@ -362,6 +369,9 @@ char* ffiRPC_struct_serialise(ffiRPC_struct_t ffiRPC_struct, size_t* buflen_outp
                 case FFIRPC_struct:
                     free(pre_serialise[i].buf);
                     break;
+                case FFIRPC_sizedbuf:
+                    free(pre_serialise[i].buf);
+                    break;
                 default: break;
             }
         }
@@ -390,6 +400,9 @@ ffiRPC_struct_t ffiRPC_struct_unserialise(char* buf){
             switch(serialise.type){
                 case FFIRPC_struct:
                     unserialised = ffiRPC_struct_unserialise(serialise.buf);
+                    break;
+                case FFIRPC_sizedbuf:
+                    unserialised = ffiRPC_sizedbuf_unserialise(serialise.buf);
                     break;
                 default: break; //UNKNOWN TYPE, NEED TO DIE
             }
@@ -522,6 +535,9 @@ int main(){
         sprintf(K,"TI%d",i);
         ffiRPC_struct_set(ffiRPC_struct,K,DFC2);
     }
+    ffiRPC_struct_set(ffiRPC_struct,"szbuf",ffiRPC_sizedbuf_create("hello!",sizeof("hello!")));
+
+
     uint64_t output;
     assert(ffiRPC_struct_get(ffiRPC_struct,"check_int",output) == 0);
     assert(output == input);
@@ -595,6 +611,10 @@ int main(){
 
     free(ffiRPC_struct_serialise(copy,&UN));
     ffiRPC_struct_t CC = ffiRPC_struct_copy(copy);
+
+    ffiRPC_sizedbuf_t szbuf = NULL;
+    ffiRPC_struct_get(CC,"szbuf",szbuf);
+    printf("szbuf check! %s\n",ffiRPC_sizedbuf_getbuf(szbuf,&UN));
 
     ffiRPC_struct_free(copy);
     ffiRPC_struct_free(ffiRPC_struct);
