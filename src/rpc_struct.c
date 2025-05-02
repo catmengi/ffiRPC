@@ -523,3 +523,25 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
 size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct){
     return rpc_struct->run_GC;
 }
+
+size_t rpc_struct_length(rpc_struct_t rpc_struct){
+    assert(rpc_struct);
+    return rpc_struct->ht->size;
+}
+char** rpc_struct_getkeys(rpc_struct_t rpc_struct){
+    assert(rpc_struct);
+    char** keys = malloc(sizeof(char*) * rpc_struct->ht->size); assert(keys);
+
+    size_t j = 0;
+    for(size_t i = 0; i < rpc_struct->ht->capacity; i++)
+        if(rpc_struct->ht->body[i].key != NULL && rpc_struct->ht->body[i].key != (void*)0xDEAD)
+            keys[j++] = rpc_struct->ht->body[i].key;
+
+    return keys;
+}
+
+enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
+    assert(rpc_struct);
+    struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
+    return (element == NULL ? 0 : element->type);
+}

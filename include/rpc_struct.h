@@ -55,6 +55,11 @@ rpc_struct_t rpc_struct_unserialise(char* buf); //unserialise buf created with r
 
 rpc_struct_t rpc_struct_copy(rpc_struct_t original); //returns a copy of "original"
 
+size_t rpc_struct_length(rpc_struct_t rpc_struct); //return length of rpc_struct
+
+char** rpc_struct_getkeys(rpc_struct_t rpc_struct); //return array of char* keys to elements;
+enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key); //gets type of element
+
 //=====================================================
 
 int rpc_is_pointer(enum rpc_types type);
