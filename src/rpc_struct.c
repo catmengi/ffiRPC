@@ -11,9 +11,9 @@
 struct _rpc_struct{
     hashtable* ht;
 
-    hashtable** refcount_copys;
-    atomic_size_t refcount_copys_len;
-    atomic_size_t refcount_copys_index;
+    hashtable** refcounts;
+    atomic_size_t refcounts_len;
+    atomic_size_t refcounts_index;
     struct sc_queue_int REF_freed;
 
     hashtable* anti_double_free;  //used to not free elements that have different keys but same data
@@ -36,10 +36,10 @@ rpc_struct_t rpc_struct_create(void){
     rpc_struct->ht = hashtable_create();
     rpc_struct->anti_double_free = hashtable_create();
 
-    rpc_struct->refcount_copys_len = 4;
-    rpc_struct->refcount_copys_index = 0;
-    rpc_struct->refcount_copys = calloc(rpc_struct->refcount_copys_len,sizeof(*rpc_struct->refcount_copys)); assert(rpc_struct->refcount_copys);
-    rpc_struct->refcount_copys[rpc_struct->refcount_copys_index++] = rpc_struct->ht;
+    rpc_struct->refcounts_len = 4;
+    rpc_struct->refcounts_index = 0;
+    rpc_struct->refcounts = calloc(rpc_struct->refcounts_len,sizeof(*rpc_struct->refcounts)); assert(rpc_struct->refcounts);
+    rpc_struct->refcounts[rpc_struct->refcounts_index++] = rpc_struct->ht;
 
     rpc_struct->ADF_refcount = malloc(sizeof(*rpc_struct->ADF_refcount)); assert(rpc_struct->ADF_refcount);
     *rpc_struct->ADF_refcount = 1;
@@ -97,13 +97,13 @@ void rpc_struct_cleanup(rpc_struct_t rpc_struct){
                 size_t refcount = 0; //If it stays zero we remove this entry from anti_double_free
                 struct rpc_container_element* GC_copy = rpc_struct->anti_double_free->body[i].value;
 
-                for(size_t r = 0; r < rpc_struct->refcount_copys_index; r++){
-                    if(rpc_struct->refcount_copys[r]){
-                        for(size_t j = 0; j < rpc_struct->refcount_copys[r]->capacity; j++){
-                            if(rpc_struct->refcount_copys[r]->body[j].key != (char*)0xDEAD &&
-                                rpc_struct->refcount_copys[r]->body[j].key != NULL && rpc_struct->refcount_copys[r]->body[j].value != NULL){
+                for(size_t r = 0; r < rpc_struct->refcounts_index; r++){
+                    if(rpc_struct->refcounts[r]){
+                        for(size_t j = 0; j < rpc_struct->refcounts[r]->capacity; j++){
+                            if(rpc_struct->refcounts[r]->body[j].key != (char*)0xDEAD &&
+                                rpc_struct->refcounts[r]->body[j].key != NULL && rpc_struct->refcounts[r]->body[j].value != NULL){
 
-                                struct rpc_container_element* check_element = rpc_struct->refcount_copys[r]->body[j].value;
+                                struct rpc_container_element* check_element = rpc_struct->refcounts[r]->body[j].value;
                                 if(check_element->data == GC_copy->data) refcount++; //belive me, this is how it should be done
                             }
                         }
@@ -140,10 +140,10 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
     for(size_t i = 0;  i < rpc_struct->copys_index; i++){
         rpc_struct_t copy = rpc_struct->copys[i];
         if(copy){
-            for(size_t j = 0; j < copy->refcount_copys_index; j++){
-                if(copy->refcount_copys[j] == rpc_struct->ht){
+            for(size_t j = 0; j < copy->refcounts_index; j++){
+                if(copy->refcounts[j] == rpc_struct->ht){
                     assert(j != 0); //sanity check
-                    copy->refcount_copys[j] = NULL;
+                    copy->refcounts[j] = NULL;
                     sc_queue_add_last(&copy->REF_freed,j);
                 }
             }
@@ -152,9 +152,9 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
     if(rpc_struct->parent){
         rpc_struct_t current = rpc_struct->parent;
         while(current){
-            for(size_t j = 0; j < current->refcount_copys_index; j++){
-                if(current->refcount_copys[j] == rpc_struct->ht){
-                    current->refcount_copys[j] = NULL;
+            for(size_t j = 0; j < current->refcounts_index; j++){
+                if(current->refcounts[j] == rpc_struct->ht){
+                    current->refcounts[j] = NULL;
                     sc_queue_add_last(&current->REF_freed,j);
                 }
             }
@@ -176,7 +176,7 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
     sc_queue_term(&rpc_struct->CPY_freed);
 
     free(rpc_struct->copys);
-    free(rpc_struct->refcount_copys);
+    free(rpc_struct->refcounts);
     free(rpc_struct);
 }
 
@@ -482,20 +482,20 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     while(current){
         size_t index = 0;
         if(sc_queue_size(&current->REF_freed) == 0){
-            if(current->refcount_copys_len - 1 == current->refcount_copys_index){
-                current->refcount_copys_len += (current->refcount_copys_len / 2 == 0 ? 1 : current->refcount_copys_len / 2 );
-                assert((current->refcount_copys = realloc(current->refcount_copys, current->refcount_copys_len * sizeof(*current->refcount_copys))));
+            if(current->refcounts_len - 1 == current->refcounts_index){
+                current->refcounts_len += (current->refcounts_len / 2 == 0 ? 1 : current->refcounts_len / 2 );
+                assert((current->refcounts = realloc(current->refcounts, current->refcounts_len * sizeof(*current->refcounts))));
             }
-            index = current->refcount_copys_index++;
+            index = current->refcounts_index++;
         } else index = sc_queue_del_first(&current->REF_freed);
 
-        current->refcount_copys[index] = copy->ht;
+        current->refcounts[index] = copy->ht;
 
-        if(copy->refcount_copys_len - 1 == copy->copys_index){
-            copy->refcount_copys_len += (copy->refcount_copys_len / 2 == 0 ? 1 : copy->refcount_copys_len / 2 );
-            assert((copy->refcount_copys = realloc(copy->refcount_copys, copy->refcount_copys_len * sizeof(*copy->refcount_copys))));
+        if(copy->refcounts_len - 1 == copy->refcounts_index){
+            copy->refcounts_len += (copy->refcounts_len / 2 == 0 ? 1 : copy->refcounts_len / 2 );
+            assert((copy->refcounts = realloc(copy->refcounts, copy->refcounts_len * sizeof(*copy->refcounts))));
         }
-        copy->refcount_copys[copy->refcount_copys_index++] = current->ht;
+        copy->refcounts[copy->refcounts_index++] = current->ht;
 
         if(current->copys == NULL){
             current->copys_len = 4;
@@ -516,112 +516,6 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     return copy;
 }
 
-
-//REMOVE WHEN DONE!
-int main(){
-    rpc_struct_t rpc_struct = rpc_struct_create();
-
-    uint64_t input = 12345678;
-    rpc_struct_t DFC = rpc_struct_create();
-    rpc_struct_set(rpc_struct,"check_int",input);
-    rpc_struct_set(rpc_struct,"check_string",(char*)"test 1234567890000000000");
-    char* K = malloc(10000);
-    for(int i = 0; i < 5000; i++){
-        sprintf(K,"%d",i);
-        rpc_struct_set(rpc_struct,K,DFC);
-    }
-    rpc_struct_t DFC2 = rpc_struct_create();
-    for(int i = 0; i < 5000; i++){
-        sprintf(K,"TI%d",i);
-        rpc_struct_set(rpc_struct,K,DFC2);
-    }
-    rpc_struct_set(rpc_struct,"szbuf",rpc_sizedbuf_create("hello!",sizeof("hello!")));
-
-
-    uint64_t output;
-    assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
-    assert(output == input);
-    assert(rpc_struct_unlink(rpc_struct,"check_int") != 0); //checking that it works properly on int!
-    assert(rpc_struct_remove(rpc_struct,"check_int") == 0);
-    assert(rpc_struct_set(DFC,"1234",(char*)"some data that should be in this very struct!") == 0);
-    assert(rpc_struct_set(rpc_struct,"I1234",(char*)"1234") == 0);
-
-    char* str = NULL;
-    rpc_struct_get(rpc_struct,"check_string",str);
-    rpc_struct_unlink(rpc_struct,"check_string");
-    free(str);
-
-    size_t buflen = 0;
-    char* buf = rpc_struct_serialise(rpc_struct,&buflen);
-    uint64_t print = *(uint64_t*)buf;
-    printf("%lu\n",print);
-    FILE* wr = fopen("debug_test_output","wra");
-    fwrite(buf,buflen,1,wr);
-    fclose(wr);
-
-    rpc_struct_t unser = rpc_struct_unserialise(buf);
-    rpc_struct_t copy = rpc_struct_copy(rpc_struct);
-
-    rpc_struct_t unser_C1;
-    rpc_struct_get(unser,"0",unser_C1);
-    rpc_struct_t unser_C2;
-    rpc_struct_get(unser,"TI0",unser_C2);
-
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"%d",i);
-        rpc_struct_get(unser,K,C);
-        assert(C == unser_C1);
-
-        char* S;
-        assert(rpc_struct_get(C,"1234",S) == 0);
-        assert(strcmp(S,"some data that should be in this very struct!") == 0);
-    }
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"TI%d",i);
-        rpc_struct_get(unser,K,C);
-        assert(C == unser_C2);
-    }
-
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"%d",i);
-        rpc_struct_get(copy,K,C);
-
-        char* S;
-        assert(rpc_struct_get(C,"1234",S) == 0);
-        assert(strcmp(S,"some data that should be in this very struct!") == 0);
-        rpc_struct_remove(copy,K);
-    }
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"TI%d",i);
-        rpc_struct_get(copy,K,C);
-        rpc_struct_remove(copy,K);
-    }
-
-    free(buf);
-
-    // *(int*)1 = 0;
-    size_t UN = 0;
-    free(rpc_struct_serialise(copy,&UN));
-    rpc_struct_free(rpc_struct_copy(rpc_struct));
-    rpc_struct_free(unser);
-
-    free(rpc_struct_serialise(copy,&UN));
-    rpc_struct_t CC = rpc_struct_copy(copy);
-
-    rpc_sizedbuf_t szbuf = NULL;
-    rpc_struct_get(CC,"szbuf",szbuf);
-    printf("szbuf check! %s\n",rpc_sizedbuf_getbuf(szbuf,&UN));
-
-    rpc_struct_free(copy);
-    rpc_struct_free(rpc_struct);
-    rpc_struct_free(CC);
-
-
-    free(K);
-
+size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct){
+    return rpc_struct->run_GC;
 }
-//=================

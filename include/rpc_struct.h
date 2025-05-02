@@ -60,6 +60,7 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original); //returns a copy of "origin
 int rpc_is_pointer(enum rpc_types type);
 void rpc_container_free(struct rpc_container_element* element);
 void rpc_struct_cleanup(rpc_struct_t rpc_struct);
+size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct);
 
 void* rpc_struct_HT(rpc_struct_t rpc_struct);
 void* rpc_struct_ADF(rpc_struct_t rpc_struct);
@@ -115,7 +116,7 @@ void* rpc_struct_ADF(rpc_struct_t rpc_struct);
 #define rpc_struct_set(rpc_struct, key, input)({\
     int __ret = 1;\
     assert(key != NULL);\
-    if(rpc_struct->run_GC) rpc_struct_cleanup(rpc_struct);\
+    if(rpc_struct_get_runGC(rpc_struct)) rpc_struct_cleanup(rpc_struct);\
     struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
     if(element == NULL){\
         element = malloc(sizeof(*element)); assert(element);\
