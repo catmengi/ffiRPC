@@ -150,7 +150,6 @@ void ffiRPC_struct_free(ffiRPC_struct_t ffiRPC_struct){
         while(current){
             for(size_t j = 0; j < current->refcount_copys_index; j++){
                 if(current->refcount_copys[j] == ffiRPC_struct->ht){
-                    assert(j != 0); //sanity check
                     current->refcount_copys[j] = NULL;
                     sc_queue_add_last(&current->REF_freed,j);
                 }
