@@ -88,7 +88,7 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
                                     default              : RPC_unknown      \
 )
 
-#define rpc_cast_value(output, input) typeof(output) cpy = input; output = cpy;
+#define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
 #define C_to_rpc(element,var)({\
     element->type = CType_to_rpc(var);\
@@ -151,6 +151,6 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
  *         assert(output == input);
 */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-                                                    if(element != NULL){assert(element->type == CType_to_rpc(output));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+                                                    if(element != NULL){if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
 
 //=====================================================

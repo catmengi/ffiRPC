@@ -51,6 +51,11 @@ int main(){
 
     rpc_struct_t unser_C1;
     rpc_struct_get(unser,"0",unser_C1);
+
+    uint64_t check;
+    rpc_struct_get(unser,"0",check);
+    assert((rpc_struct_t)check == unser_C1);
+
     rpc_struct_t unser_C2;
     rpc_struct_get(unser,"TI0",unser_C2);
 
