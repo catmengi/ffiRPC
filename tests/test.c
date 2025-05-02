@@ -1,7 +1,4 @@
-#include <rpc_struct.h>
-#include <rpc_sizedbuf.h>
-#include <hashtable.h>
-#include <sc_queue.h>
+#include "../include/rpc_struct.h"
 
 #include <stdatomic.h>
 #include <stdint.h>

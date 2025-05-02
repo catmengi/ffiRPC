@@ -62,8 +62,8 @@ void rpc_container_free(struct rpc_container_element* element);
 void rpc_struct_cleanup(rpc_struct_t rpc_struct);
 size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct);
 
-void* rpc_struct_HT(rpc_struct_t rpc_struct);
-void* rpc_struct_ADF(rpc_struct_t rpc_struct);
+hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
+hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
 
 #define CType_to_rpc(Native_type) _Generic((Native_type),                   \
                                     char                 : RPC_char,        \

@@ -57,12 +57,11 @@ rpc_struct_t rpc_struct_create(void){
     return rpc_struct;
 }
 
-//used to implement OPAQUE
-void* rpc_struct_HT(rpc_struct_t rpc_struct){
+hashtable* rpc_struct_HT(rpc_struct_t rpc_struct){
     assert(rpc_struct);
     return rpc_struct->ht;
 }
-void* rpc_struct_ADF(rpc_struct_t rpc_struct){
+hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct){
     assert(rpc_struct);
     return rpc_struct->anti_double_free;
 }
@@ -383,15 +382,20 @@ rpc_struct_t rpc_struct_unserialise(char* buf){
     assert(buf);
 
     rpc_struct_t new = rpc_struct_create();
-    uint64_t u64_parse_len = *(uint64_t*)buf;
 
-    buf += sizeof(uint64_t);
+    uint64_t u64_parse_len = 0;
+    memcpy(&u64_parse_len,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
+
     struct rpc_serialise_element serialise;
 
     for(uint64_t i = 0; i < u64_parse_len; i++){
         serialise.key = buf; buf += strlen(serialise.key) + 1;
         serialise.type = *buf; buf++;
-        serialise.buflen = *(uint64_t*)buf; buf += sizeof(uint64_t);
+
+        uint64_t U64_buflen = 0;
+        memcpy(&U64_buflen,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
+        serialise.buflen = U64_buflen;
+
         serialise.buf = buf;
 
         buf += serialise.buflen;
