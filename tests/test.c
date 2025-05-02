@@ -60,7 +60,7 @@ int main(){
         rpc_struct_get(unser,K,C);
         assert(C == unser_C1);
 
-        char* S;
+        char* S = NULL;
         assert(rpc_struct_get(C,"1234",S) == 0);
         assert(strcmp(S,"some data that should be in this very struct!") == 0);
     }

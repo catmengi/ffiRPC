@@ -89,9 +89,9 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
     element->type = CType_to_rpc(var);\
     if(rpc_is_pointer(element->type)){\
         void* ptr = NULL;\
-        void* cpy_varV = (void*)(uint64_t)var;\
+        void* cpy_varV = (void*)var;\
         element->length = 0;\
-        if(element->type == RPC_string) {ptr = strdup(cpy_varV); assert(ptr); element->length = strlen(ptr) + 1;}\
+        if(element->type == RPC_string) {ptr = strdup((cpy_varV)); assert(ptr); element->length = strlen(ptr) + 1;}\
         else ptr = cpy_varV;\
         element->data = ptr;\
     } else {\
@@ -146,6 +146,6 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
  *         assert(output == input);
 */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-                                                    if(element != NULL){assert(element->type == CType_to_rpc(output));if(rpc_is_pointer(element->type)){output = (typeof(output))element->data;} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+                                                    if(element != NULL){assert(element->type == CType_to_rpc(output));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
 
 //=====================================================
