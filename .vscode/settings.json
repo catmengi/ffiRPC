@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "rpc_sizedbuf.h": "c",
+        "rpc_struct.h": "c",
+        "hashtable.h": "c",
+        "sc_queue.h": "c",
+        "rpc_thread_context.h": "c",
+        "assert.h": "c"
+    }
+}

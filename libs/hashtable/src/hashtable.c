@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include "hashtable.h"
+#include <hashtable.h>
 
 /*
  * Interface section used for `makeheaders`.

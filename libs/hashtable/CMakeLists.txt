@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.15)
+
+project(hashtable)
+
+set(HASHTABLE_BIN ${PROJECT_NAME})
+
+set(SRC_HASHTABLE_DIR ${PROJECT_SOURCE_DIR}/src)
+set(SRC_HASHTABLE_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
+
+include_directories(${SRC_HASHTABLE_INCLUDE_DIR})
+
+set(SRC_HASHTABLE
+    ${SRC_HASHTABLE_DIR}/hashtable.c
+)
+
+set(HASHTABLE ${PROJECT_NAME})
+
+add_library(${PROJECT_NAME} STATIC ${SRC_HASHTABLE})
