@@ -36,7 +36,7 @@ typedef struct rpc_function{
 
     enum rpc_types* prototype;
     int prototype_len;
-}*rpc_function;
+}*rpc_function_t;
 
 struct _rpc_server{
     rpc_struct_t functions;
@@ -54,7 +54,7 @@ rpc_server_t rpc_server_create(){
 int rpc_server_add_function(rpc_server_t server, char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len){
     assert(server); assert(function_name); assert(function_ptr);
 
-    rpc_function function = NULL;
+    rpc_function_t function = NULL;
     if(rpc_struct_get(server->functions,function_name,function) != 0){
         function = calloc(1,sizeof(*function)); assert(function);
 
@@ -76,7 +76,7 @@ int rpc_server_add_function(rpc_server_t server, char* function_name, void* func
 }
 
 void rpc_server_remove_function(rpc_server_t server, char* function_name){
-    rpc_function function = NULL;
+    rpc_function_t function = NULL;
     if(rpc_struct_get(server->functions,function_name,function) == 0){
         assert(rpc_struct_remove(server->functions,function_name) == 0);
 
@@ -152,7 +152,7 @@ exit:
     return is_allowed;
 }
 
-int rpc_server_call(rpc_function function, rpc_struct_t arguments, rpc_struct_t output){
+int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_t output){
     char key[sizeof(int) * 2];
     if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return RPC_PROTOTYPE_DIFFERENT;
 
@@ -277,7 +277,7 @@ int rpc_server_call(rpc_function function, rpc_struct_t arguments, rpc_struct_t 
 
 //REMOVE ON NEXT PHASE(NETWORK)
 rpc_struct_t test_wrap(char* name, rpc_server_t server, rpc_struct_t arguments){
-    rpc_function fn = NULL;
+    rpc_function_t fn = NULL;
     assert(rpc_struct_get(server->functions,name,fn) == 0);
 
     rpc_struct_t out = rpc_struct_create();
