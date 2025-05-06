@@ -27,6 +27,6 @@ struct hashtable_entry {
 	void* value;
 };
 
-uint64_t murmur(char* str,uint32_t keylen);
+uint64_t murmur(uint8_t* inbuf,uint32_t keylen);
 
 #define INTERFACE 0

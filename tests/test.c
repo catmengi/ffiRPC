@@ -1,119 +1,26 @@
-#include "../include/rpc_struct.h"
+#include "../include/rpc_server.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
 #include <assert.h>
 #include <stdlib.h>
 
+rpc_struct_t test_wrap(char* name, rpc_server_t server, rpc_struct_t arguments);
+
 int main(){
-    rpc_struct_t rpc_struct = rpc_struct_create();
+    rpc_server_t server = rpc_server_create();
 
-    uint64_t input = 12345678;
-    rpc_struct_t DFC = rpc_struct_create();
-    rpc_struct_set(rpc_struct,"check_int",input);
-    rpc_struct_set(rpc_struct,"check_string",(char*)"test 1234567890000000000");
-    char* K = malloc(10000);
-    for(int i = 0; i < 5000; i++){
-        sprintf(K,"%d",i);
-        rpc_struct_set(rpc_struct,K,DFC);
-    }
-    rpc_struct_t DFC2 = rpc_struct_create();
-    for(int i = 0; i < 5000; i++){
-        sprintf(K,"TI%d",i);
-        rpc_struct_set(rpc_struct,K,DFC2);
-    }
-    rpc_struct_set(rpc_struct,"szbuf",rpc_sizedbuf_create("hello!",sizeof("hello!")));
+    enum rpc_types prototype[1] = {ctype_to_rpc(char*)};
+    rpc_server_add_function(server,"test function",printf,ctype_to_rpc(int),prototype,ARRAY_SIZE(prototype));
+
+    rpc_struct_t args = rpc_struct_create();
+    rpc_struct_set(args,"0",(char*)"\n\n\n\n abcd printf test! %d \n\n\n\n");
+    rpc_struct_set(args,"1",(uint32_t)228);
 
 
-    uint64_t output;
-    assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
-    assert(output == input);
-    assert(rpc_struct_unlink(rpc_struct,"check_int") != 0); //checking that it works properly on int!
-    assert(rpc_struct_remove(rpc_struct,"check_int") == 0);
-    assert(rpc_struct_set(DFC,"1234",(char*)"some data that should be in this very struct!") == 0);
-    assert(rpc_struct_set(rpc_struct,"I1234",(char*)"1234") == 0);
+    test_wrap("test function",server,args);
 
-    char* str = NULL;
-    rpc_struct_get(rpc_struct,"check_string",str);
-    rpc_struct_unlink(rpc_struct,"check_string");
-    free(str);
-
-    size_t buflen = 0;
-    char* buf = rpc_struct_serialise(rpc_struct,&buflen);
-    uint64_t print = *(uint64_t*)buf;
-    printf("%lu\n",print);
-    FILE* wr = fopen("debug_test_output","wra");
-    fwrite(buf,buflen,1,wr);
-    fclose(wr);
-
-    rpc_struct_t unser = rpc_struct_unserialise(buf);
-    rpc_struct_t copy = rpc_struct_copy(rpc_struct);
-
-    rpc_struct_t unser_C1;
-    rpc_struct_get(unser,"0",unser_C1);
-
-    uint64_t check;
-    rpc_struct_get_unsafe(unser,"0",check);
-    assert((rpc_struct_t)check == unser_C1);
-
-    rpc_struct_t unser_C2;
-    rpc_struct_get(unser,"TI0",unser_C2);
-
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"%d",i);
-        rpc_struct_get(unser,K,C);
-        assert(C == unser_C1);
-
-        char* S = NULL;
-        assert(rpc_struct_get(C,"1234",S) == 0);
-        assert(strcmp(S,"some data that should be in this very struct!") == 0);
-    }
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"TI%d",i);
-        rpc_struct_get(unser,K,C);
-        assert(C == unser_C2);
-    }
-
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"%d",i);
-        rpc_struct_get(copy,K,C);
-
-        char* S;
-        assert(rpc_struct_get(C,"1234",S) == 0);
-        assert(strcmp(S,"some data that should be in this very struct!") == 0);
-        rpc_struct_remove(copy,K);
-    }
-    for(int i = 1; i < 5000; i++){
-        rpc_struct_t C = NULL;
-        sprintf(K,"TI%d",i);
-        rpc_struct_get(copy,K,C);
-        rpc_struct_remove(copy,K);
-    }
-
-    free(buf);
-
-    // *(int*)1 = 0;
-    size_t UN = 0;
-    free(rpc_struct_serialise(copy,&UN));
-    rpc_struct_free(rpc_struct_copy(rpc_struct));
-    rpc_struct_free(unser);
-
-    free(rpc_struct_serialise(copy,&UN));
-    rpc_struct_t CC = rpc_struct_copy(copy);
-
-    rpc_sizedbuf_t szbuf = NULL;
-    rpc_struct_get(CC,"szbuf",szbuf);
-    printf("szbuf check! %s\n",rpc_sizedbuf_getbuf(szbuf,&UN));
-
-    rpc_struct_free(copy);
-    rpc_struct_free(rpc_struct);
-    rpc_struct_free(CC);
-
-
-    free(K);
-
+    rpc_struct_free(args);
+    rpc_server_free(server);
 }
 //=================

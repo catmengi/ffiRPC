@@ -164,10 +164,10 @@ void hashtable_destroy(hashtable* t)
 	free(t);
 }
 
-uint64_t murmur(char* str,uint32_t keylen){
+uint64_t murmur(uint8_t* inbuf,uint32_t keylen){
 	uint64_t h = (525201411107845655ull);
-	for (uint32_t i =0; i < keylen; i++,str++){
-		h ^= *str;
+	for (uint32_t i =0; i < keylen; i++,inbuf++){
+		h ^= *inbuf;
 		h *= 0x5bd1e9955bd1e995;
 		h ^= h >> 47;
 	}

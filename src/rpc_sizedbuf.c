@@ -1,4 +1,5 @@
 #include "../include/rpc_sizedbuf.h"
+#include "../include/hashtable.h"
 
 #include <assert.h>
 #include <string.h>
@@ -49,6 +50,15 @@ rpc_sizedbuf_t rpc_sizedbuf_unserialise(char* buf){
     memcpy(&U64_len,buf,sizeof(U64_len));
 
     return rpc_sizedbuf_create(buf + sizeof(uint64_t),(size_t)U64_len);
+}
+
+uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf){
+    assert(szbuf);
+    uint64_t hash = 0;
+
+    murmur((uint8_t*)szbuf->buf,szbuf->length); hash += szbuf->length;
+    murmur((uint8_t*)&hash,sizeof(uint64_t));
+    return hash;
 }
 
 

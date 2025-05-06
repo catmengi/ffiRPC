@@ -11,7 +11,9 @@
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
 
+
 enum rpc_types{
+    RPC_none, //same as void
     RPC_char = 1,
     RPC_int8 = 1,
     RPC_uint8,
@@ -30,6 +32,8 @@ enum rpc_types{
     RPC_unknown,
     RPC_duplicate,
 };
+
+extern size_t rpctype_sizes[RPC_duplicate];
 
 struct rpc_container_element{
     void* data;
@@ -60,17 +64,19 @@ size_t rpc_struct_length(rpc_struct_t rpc_struct); //return length of rpc_struct
 char** rpc_struct_getkeys(rpc_struct_t rpc_struct); //return array of char* keys to elements;
 enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key); //gets type of element
 
+uint64_t rpc_struct_hash(rpc_struct_t rpc_struct); //return a hash of rpc_struct
+
 //=====================================================
 
 int rpc_is_pointer(enum rpc_types type);
 void rpc_container_free(struct rpc_container_element* element);
 void rpc_struct_cleanup(rpc_struct_t rpc_struct);
 size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct);
+int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element);
 
 hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
-hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
 
-#define CType_to_rpc(Native_type) _Generic((Native_type),                   \
+#define ctype_to_rpc(Native_type) (_Generic((Native_type)0,                    \
                                     char                 : RPC_char,        \
                                     int8_t               : RPC_int8,        \
                                     uint8_t              : RPC_uint8,       \
@@ -86,19 +92,15 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
                                     rpc_struct_t         : RPC_struct,      \
                                     rpc_sizedbuf_t       : RPC_sizedbuf,    \
                                     default              : RPC_unknown      \
-)
+))
 
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
-#define C_to_rpc(element,var)({\
-    element->type = CType_to_rpc(var);\
+#define c_to_rpc(element,var)({\
+    element->type = ctype_to_rpc(typeof(var));\
     if(rpc_is_pointer(element->type)){\
-        void* ptr = NULL;\
-        void* cpy_varV = (void*)var;\
         element->length = 0;\
-        if(element->type == RPC_string) {ptr = strdup((cpy_varV)); assert(ptr); element->length = strlen(ptr) + 1;}\
-        else ptr = cpy_varV;\
-        element->data = ptr;\
+        element->data = (void*)var;\
     } else {\
         typeof(var) cpy_var = var;\
         element->data = malloc(sizeof(cpy_var));\
@@ -121,25 +123,12 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
 #define rpc_struct_set(rpc_struct, key, input)({\
     int __ret = 1;\
     assert(key != NULL);\
-    if(rpc_struct_get_runGC(rpc_struct)) rpc_struct_cleanup(rpc_struct);\
-    struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-    if(element == NULL){\
-        element = malloc(sizeof(*element)); assert(element);\
-        C_to_rpc(element,input);\
-        hashtable_set(rpc_struct_HT(rpc_struct),strdup(key),element);\
-        if(rpc_is_pointer(element->type) && element->type != RPC_string){\
-            char NOdoublefree[sizeof(void*) * 2];\
-            sprintf(NOdoublefree,"%p",element->data);\
-            if(hashtable_get(rpc_struct_ADF(rpc_struct),NOdoublefree) == NULL){\
-                struct rpc_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);\
-                GC_copy->data = element->data;\
-                GC_copy->length = element->length;\
-                GC_copy->type = element->type;\
-                hashtable_set(rpc_struct_ADF(rpc_struct),strdup(NOdoublefree),GC_copy);\
-            }\
-        }\
-        __ret = 0;\
-    }(int)(__ret);})
+    if(rpc_struct_typeof(rpc_struct, key) == 0){\
+        struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);\
+        c_to_rpc(element,input);\
+        __ret = rpc_struct_set_internal(rpc_struct,key,element);\
+    }\
+    (int)(__ret);})
 
 /*Get element from rpc_struct at key "key" and writes it's data into "output". If element "key" does NOT exist returns 1 else 0
  *NOTE: you SHOULD type only NAME of output variable into "output", NOT &output !!!
@@ -151,9 +140,9 @@ hashtable* rpc_struct_ADF(rpc_struct_t rpc_struct);
  *         assert(output == input);
 */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-if(element != NULL){assert(element->type == CType_to_rpc(output));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
 #define rpc_struct_get_unsafe(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-if(element != NULL){if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{rpc_cast_value(output,*(typeof(output)*)element->data);} ret = 0;}(ret);})
+if(element != NULL){if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
 //=====================================================

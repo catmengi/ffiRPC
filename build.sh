@@ -3,6 +3,6 @@ mkdir build
 cd build
 cmake ..
 cmake --build .
-./tests/donkey
+valgrind --leak-check=full ./tests/donkey
 cd ..
 rm -r build
