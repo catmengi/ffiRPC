@@ -7,6 +7,13 @@
 #include <ffi.h>
 #include <stdint.h>
 
+enum rpc_server_errors{
+    RPC_OK,
+    RPC_PROTOTYPE_DIFFERENT,
+    RPC_VARIADIC_NOT_ALLOWED,
+    RPC_FUNCTION_EXIST,
+};
+
 ffi_type* rpctype_to_libffi[RPC_duplicate] = {   //convert table used to convert from rpc_types to ffi type
     &ffi_type_void,
     &ffi_type_schar,
@@ -37,7 +44,6 @@ struct _rpc_server{
 };
 
 rpc_server_t rpc_server_create(){
-    rpc_init_thread_context();
     rpc_server_t server = malloc(sizeof(*server)); assert(server);
 
     server->functions = rpc_struct_create();
@@ -64,9 +70,9 @@ int rpc_server_add_function(rpc_server_t server, char* function_name, void* func
         function->return_type = return_type;
 
         assert(rpc_struct_set(server->functions,function_name,function) == 0);
-        return 0;
+        return RPC_OK;
     }
-    return 1;
+    return RPC_FUNCTION_EXIST;
 }
 
 void rpc_server_remove_function(rpc_server_t server, char* function_name){
@@ -98,8 +104,6 @@ void rpc_server_free(rpc_server_t server){
     rpc_struct_free(server->functions);
     rpc_struct_free(server->users);
     free(server);
-
-    rpc_destroy_thread_context();
 }
 
 struct rpc_updated_argument_info{
@@ -130,10 +134,31 @@ exit:
     free(keys);
     return ret;
 }
+int rpc_server_is_variadic(rpc_struct_t arguments, int prototype_len){
+    return rpc_struct_length(arguments) > prototype_len;
+}
+int rpc_server_is_variadic_allowed(rpc_struct_t arguments, int variadic_start){
+    int is_allowed = 1;
+    char** keys = rpc_struct_getkeys(arguments);
+    for(int i = 0; i < rpc_struct_length(arguments); i++){
+        enum rpc_types type = rpc_struct_typeof(arguments,keys[i]);
+        if(type < ctype_to_rpc(int)){
+            is_allowed = 0;
+            goto exit;
+        }
+    }
+exit:
+    free(keys);
+    return is_allowed;
+}
 
 int rpc_server_call(rpc_function function, rpc_struct_t arguments, rpc_struct_t output){
     char key[sizeof(int) * 2];
-    if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return 1;
+    if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return RPC_PROTOTYPE_DIFFERENT;
+
+     //libffi NOT allow types smaller than int exist in variadic arguments....
+     if(rpc_server_is_variadic(arguments,function->prototype_len) && rpc_server_is_variadic_allowed(arguments,function->prototype_len) == 0) return RPC_VARIADIC_NOT_ALLOWED;
+
 
     ffi_cif cif;
     ffi_type** ffi_prototype = malloc(sizeof(*ffi_prototype) * rpc_struct_length(arguments)); assert(ffi_prototype);
@@ -229,7 +254,7 @@ int rpc_server_call(rpc_function function, rpc_struct_t arguments, rpc_struct_t 
 
     if(return_is != -1){
         uint32_t cast = return_is;
-        assert(rpc_struct_set(output,"return_is",cast) == 0);
+        assert(rpc_struct_set(output,"return_is",cast) == 0); //fuck you GCC for this warning, fuck you C compilers, fuck you all
     } else {
         if(function->return_type != RPC_none && function->return_type != RPC_unknown){ //we cannot serialise RPC_unknown since it is a raw pointer
             if(!(rpc_is_pointer(function->return_type) && (void*)ffi_return == NULL)){
@@ -247,7 +272,7 @@ int rpc_server_call(rpc_function function, rpc_struct_t arguments, rpc_struct_t 
             }
         }
     }
-    return 0;
+    return RPC_OK;
 }
 
 //REMOVE ON NEXT PHASE(NETWORK)

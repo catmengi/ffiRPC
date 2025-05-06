@@ -4,32 +4,12 @@
 #include <assert.h>
 #include <pthread.h>
 
-static atomic_size_t thread_context_refcount = 0;
 static hashtable* thread_context = NULL;
 
+__attribute__((constructor))
 void rpc_init_thread_context(){
-    if(thread_context == NULL){
-        thread_context = hashtable_create();
-        assert(thread_context);
-    }
-    thread_context_refcount++;
-}
-void rpc_destroy_thread_context(){
-    if(thread_context != NULL){
-        if(--thread_context_refcount == 0){
-            for(size_t i = 0; i < thread_context->capacity; i++){
-                if(thread_context->body[i].key != NULL && thread_context->body[i].key != (void*)0xDEAD){
-                    free(thread_context->body[i].key);
-                }
-            }
-
-            hashtable_destroy(thread_context);
-            thread_context = NULL;
-        }
-    }
-}
-int rpc_is_thread_context_inited(){
-    return thread_context != NULL;
+    thread_context = hashtable_create();
+    assert(thread_context);
 }
 
 void rpc_thread_context_set(rpc_struct_t rpc_struct){
