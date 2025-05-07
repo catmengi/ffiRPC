@@ -44,10 +44,30 @@ static struct rpc_server{
 }rpc_server;
 
 __attribute__((constructor))
-void rpc_server_create(){ //should be called once!
+void rpc_server_init(){ //should be called once!
     rpc_init_thread_context();
     rpc_server.functions = rpc_struct_create();
     rpc_server.users = rpc_struct_create();
+}
+
+__attribute((destructor))
+void rpc_server_deinit(){
+    char** FN_keys = rpc_struct_getkeys(rpc_server.functions);
+    for(size_t i = 0; i < rpc_struct_length(rpc_server.functions); i++){
+        rpc_server_remove_function(FN_keys[i]);
+    }
+    free(FN_keys);
+    rpc_struct_free(rpc_server.functions);
+
+    char** USERS_keys = rpc_struct_getkeys(rpc_server.users);
+    for(size_t i = 0; i < rpc_struct_length(rpc_server.users); i++){
+        //do something
+    }
+    free(USERS_keys);
+    rpc_struct_free(rpc_server.users);
+
+    rpc_deinit_thread_context();
+    memset(&rpc_server,0,sizeof(rpc_server));
 }
 
 int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len){

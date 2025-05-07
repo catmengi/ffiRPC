@@ -11,6 +11,18 @@ void rpc_init_thread_context(){
     assert(thread_context);
 }
 
+void rpc_deinit_thread_context(){
+    if(thread_context){
+        for(size_t i = 0; i < thread_context->capacity; i++){
+            if(thread_context->body[i].key != NULL && thread_context->body[i].key != (void*)0xDEAD){
+                free(thread_context->body[i].key);
+            }
+        }
+        hashtable_destroy(thread_context);
+        thread_context = NULL;
+    }
+}
+
 void rpc_thread_context_set(rpc_struct_t rpc_struct){
     assert(thread_context);
 
