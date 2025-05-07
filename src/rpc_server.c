@@ -38,21 +38,23 @@ typedef struct rpc_function{
     int prototype_len;
 }*rpc_function_t;
 
-static rpc_struct_t rpc_server_functions = NULL;
-static rpc_struct_t rpc_server_users = NULL;
+static struct rpc_server{
+    rpc_struct_t functions;
+    rpc_struct_t users;
+}rpc_server;
 
 __attribute__((constructor))
 void rpc_server_create(){ //should be called once!
     rpc_init_thread_context();
-    rpc_server_functions = rpc_struct_create();
-    rpc_server_users = rpc_struct_create();
+    rpc_server.functions = rpc_struct_create();
+    rpc_server.users = rpc_struct_create();
 }
 
 int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len){
     assert(function_name); assert(function_ptr);
 
     rpc_function_t function = NULL;
-    if(rpc_struct_get(rpc_server_functions,function_name,function) != 0){
+    if(rpc_struct_get(rpc_server.functions,function_name,function) != 0){
         function = calloc(1,sizeof(*function)); assert(function);
 
         function->function_context = rpc_struct_create();
@@ -66,7 +68,7 @@ int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_typ
 
         function->return_type = return_type;
 
-        assert(rpc_struct_set(rpc_server_functions,function_name,function) == 0);
+        assert(rpc_struct_set(rpc_server.functions,function_name,function) == 0);
         return RPC_OK;
     }
     return RPC_FUNCTION_EXIST;
@@ -74,8 +76,8 @@ int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_typ
 
 void rpc_server_remove_function(char* function_name){
     rpc_function_t function = NULL;
-    if(rpc_struct_get(rpc_server_functions,function_name,function) == 0){
-        assert(rpc_struct_remove(rpc_server_functions,function_name) == 0);
+    if(rpc_struct_get(rpc_server.functions,function_name,function) == 0){
+        assert(rpc_struct_remove(rpc_server.functions,function_name) == 0);
 
         rpc_struct_free(function->function_context);
         free(function->function_name);
@@ -256,7 +258,7 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
 //REMOVE ON NEXT PHASE(NETWORK)
 rpc_struct_t test_wrap(char* name, rpc_struct_t arguments){
     rpc_function_t fn = NULL;
-    assert(rpc_struct_get(rpc_server_functions,name,fn) == 0);
+    assert(rpc_struct_get(rpc_server.functions,name,fn) == 0);
 
     rpc_struct_t out = rpc_struct_create();
 
