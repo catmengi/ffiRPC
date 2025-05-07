@@ -547,7 +547,7 @@ char** rpc_struct_getkeys(rpc_struct_t rpc_struct){
     for(size_t i = 0; i < rpc_struct->ht->capacity; i++)
         if(rpc_struct->ht->body[i].key != NULL && rpc_struct->ht->body[i].key != (void*)0xDEAD)
             keys[j++] = rpc_struct->ht->body[i].key;
-
+            
     return keys;
 }
 

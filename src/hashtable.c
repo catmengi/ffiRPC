@@ -100,7 +100,7 @@ void hashtable_remove(hashtable* t, char* key)
 {
 	pthread_mutex_lock(&t->lock);
 	int index = hashtable_find_slot(t, key);
-	if (t->body[index].key != NULL) {
+	if (t->body[index].key != NULL && t->body[index].key != (char*)0xDEAD) {
 		t->body[index].key = (char*)0xDEAD;
 		t->body[index].value = NULL;
 		t->size--;
@@ -147,11 +147,14 @@ void hashtable_resize(hashtable* t, unsigned int capacity)
 	t->capacity = capacity;
 
 	// Copy all the old values into the newly allocated body
+	unsigned int copyed_keys = 0;
 	for (unsigned int i = 0; i < old_capacity; i++) {
 		if (old_body[i].key != NULL && old_body[i].key != (char*)0xDEAD) {
 			hashtable_set_NL(t, old_body[i].key, old_body[i].value);
+			copyed_keys++;
 		}
 	}
+	t->size -= copyed_keys;
 	free(old_body);
 }
 
