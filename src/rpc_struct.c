@@ -195,10 +195,7 @@ int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key){
 
     struct rpc_container_element* element = NULL;
     if((element = hashtable_get(rpc_struct->ht,key)) != NULL){
-        if(rpc_is_pointer(element->type)){
-            char* free_key = rpc_struct->ht->body[hashtable_find_slot(rpc_struct->ht,key)].key;
-            hashtable_remove(rpc_struct->ht,key);
-
+        if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
             char NOdoublefree[sizeof(void*) * 2];
             sprintf(NOdoublefree,"%p",element->data);
 
@@ -206,9 +203,6 @@ int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key){
             free(hashtable_get(rpc_struct->ADF_ht,NOdoublefree));
             hashtable_remove(rpc_struct->ADF_ht,NOdoublefree); //removing this element from rpc_struct's garbage collector/reference counter/rpc_struct_cleanup()
             free(ADF_free_key);
-
-            free(element); //We should free container BUT NOT internals!
-            free(free_key); //since key is strdup() ed we should free it
             return 0;
         }
     }

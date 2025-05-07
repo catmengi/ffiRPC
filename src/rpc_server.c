@@ -38,20 +38,23 @@ typedef struct rpc_function{
     int prototype_len;
 }*rpc_function_t;
 
-struct _rpc_server{
+typedef struct _rpc_server{
     rpc_struct_t functions;
     rpc_struct_t users;
-};
+}*rpc_server_t;
 
-rpc_server_t rpc_server_create(){
-    rpc_server_t server = malloc(sizeof(*server)); assert(server);
+static rpc_server_t server = NULL;
 
+__attribute__((constructor))
+void rpc_server_create(){ //should be called once!
+    rpc_init_thread_context();
+
+    server = malloc(sizeof(*server)); assert(server);
     server->functions = rpc_struct_create();
     server->users = rpc_struct_create();
-    return server;
 }
 
-int rpc_server_add_function(rpc_server_t server, char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len){
+int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len){
     assert(server); assert(function_name); assert(function_ptr);
 
     rpc_function_t function = NULL;
@@ -75,7 +78,7 @@ int rpc_server_add_function(rpc_server_t server, char* function_name, void* func
     return RPC_FUNCTION_EXIST;
 }
 
-void rpc_server_remove_function(rpc_server_t server, char* function_name){
+void rpc_server_remove_function(char* function_name){
     rpc_function_t function = NULL;
     if(rpc_struct_get(server->functions,function_name,function) == 0){
         assert(rpc_struct_remove(server->functions,function_name) == 0);
@@ -85,25 +88,6 @@ void rpc_server_remove_function(rpc_server_t server, char* function_name){
         free(function->prototype);
         free(function);
     }
-}
-void rpc_server_free(rpc_server_t server){
-    assert(server);
-
-    char** function_keys = rpc_struct_getkeys(server->functions);
-    for(size_t i = 0; i < rpc_struct_length(server->functions); i++){
-        rpc_server_remove_function(server,function_keys[i]);
-    }
-    free(function_keys);
-
-    char** users_keys = rpc_struct_getkeys(server->users);
-    for(size_t i = 0; i < rpc_struct_length(server->users); i++){
-        //do something to free
-    }
-    free(users_keys);
-
-    rpc_struct_free(server->functions);
-    rpc_struct_free(server->users);
-    free(server);
 }
 
 struct rpc_updated_argument_info{
@@ -276,7 +260,7 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
 }
 
 //REMOVE ON NEXT PHASE(NETWORK)
-rpc_struct_t test_wrap(char* name, rpc_server_t server, rpc_struct_t arguments){
+rpc_struct_t test_wrap(char* name, rpc_struct_t arguments){
     rpc_function_t fn = NULL;
     assert(rpc_struct_get(server->functions,name,fn) == 0);
 

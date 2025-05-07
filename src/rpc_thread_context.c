@@ -6,7 +6,6 @@
 
 static hashtable* thread_context = NULL;
 
-__attribute__((constructor))
 void rpc_init_thread_context(){
     thread_context = hashtable_create();
     assert(thread_context);
