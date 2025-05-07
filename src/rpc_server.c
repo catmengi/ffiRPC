@@ -274,15 +274,3 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
     }
     return RPC_OK;
 }
-
-//REMOVE ON NEXT PHASE(NETWORK)
-rpc_struct_t test_wrap(char* name, rpc_struct_t arguments){
-    rpc_function_t fn = NULL;
-    assert(rpc_struct_get(rpc_server.functions,name,fn) == 0);
-
-    rpc_struct_t out = rpc_struct_create();
-
-    assert(rpc_server_call(fn,arguments,out) == 0);
-    rpc_struct_free(out);
-    return out;
-}
