@@ -558,6 +558,7 @@ enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
 }
 
 int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element){
+    if(element->data == NULL) {free(element); return 1;}
     if(rpc_struct_get_runGC(rpc_struct)) rpc_struct_cleanup(rpc_struct);
         if(hashtable_get(rpc_struct->ht,key) == NULL){
             if(element->type == RPC_string){
