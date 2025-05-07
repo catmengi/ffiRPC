@@ -196,7 +196,7 @@ int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key){
     struct rpc_container_element* element = NULL;
     if((element = hashtable_get(rpc_struct->ht,key)) != NULL){
         if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-            char NOdoublefree[sizeof(void*) * 2];
+            char NOdoublefree[sizeof(void*) * 4];
             sprintf(NOdoublefree,"%p",element->data);
 
             char* ADF_free_key = rpc_struct->ADF_ht->body[hashtable_find_slot(rpc_struct->ADF_ht,NOdoublefree)].key;
@@ -422,7 +422,7 @@ rpc_struct_t rpc_struct_unserialise(char* buf){
                 default: break; //UNKNOWN TYPE, NEED TO DIE
             }
 
-            char NOdoublefree[sizeof(void*) * 2];
+            char NOdoublefree[sizeof(void*) * 4];
             sprintf(NOdoublefree,"%p",unserialised);
 
             assert(hashtable_get(new->ADF_ht,NOdoublefree) == NULL); //asserting if element unique!
@@ -565,7 +565,7 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
                 element->length = strlen(element->data) + 1;
             }
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-                char NOdoublefree[sizeof(void*) * 2];
+                char NOdoublefree[sizeof(void*) * 4];
                 sprintf(NOdoublefree,"%p",element->data);
                 if(hashtable_get(rpc_struct->ADF_ht,NOdoublefree) == NULL){
                     struct rpc_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);

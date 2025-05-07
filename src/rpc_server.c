@@ -107,7 +107,7 @@ void rpc_server_remove_function(char* function_name){
 }
 
 struct rpc_updated_argument_info{
-    char key[sizeof(int) * 2];
+    char key[sizeof(int) * 4];
     uint64_t hash;
 
     enum rpc_types type;
@@ -153,7 +153,7 @@ exit:
 }
 
 int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_t output){
-    char key[sizeof(int) * 2];
+    char key[sizeof(int) * 4];
     if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return RPC_PROTOTYPE_DIFFERENT;
 
      //libffi NOT allow types smaller than int exist in variadic arguments....
