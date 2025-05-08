@@ -141,7 +141,6 @@ void rpc_struct_cleanup(rpc_struct_t rpc_struct){
     if(rpc_struct->ADF_ht->size > 0){
         for(size_t i = 0; i < rpc_struct->ADF_ht->capacity; i++){
             if(rpc_struct->ADF_ht->body[i].key != NULL && rpc_struct->ADF_ht->body[i].key != (char*)0xDEAD && rpc_struct->ADF_ht->body[i].value != NULL){
-                size_t refcount = 0; //If it stays zero we remove this entry from ADF_ht
                 struct rpc_container_element* GC_copy = rpc_struct->ADF_ht->body[i].value;
 
                 if(rpc_struct_refcountof(rpc_struct,GC_copy->data) == 0){

@@ -35,7 +35,13 @@
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
 
-
+/**
+ * @enum rpc_types
+ * @brief Supported data types for RPC structures
+ * 
+ * This enumeration defines all data types that can be used in RPC struct.
+ * Includes basic C types, string type, and composite types from ffiRPC.
+ */
 enum rpc_types{
     RPC_none, //same as void
     RPC_char = 1,
@@ -57,48 +63,143 @@ enum rpc_types{
     RPC_duplicate,
 };
 
-extern size_t rpctype_sizes[RPC_duplicate];
+#include "rpc_struct_internal.h"
 
-struct rpc_container_element{
-    void* data;
-    size_t length;
-    enum rpc_types type;
-};
+/**
+ * @typedef rpc_struct_t
+ * @brief Opaque pointer to RPC structure
+ *
+ * This is the main container type for RPC data, used throughout the API.
+ */
 typedef struct _rpc_struct *rpc_struct_t;
 
-//==================== public API's ===================
-
+/**
+ * @brief Creates a new RPC structure
+ * @return Pointer to newly created RPC structure
+ */
 rpc_struct_t rpc_struct_create(void);  //creates a new rpc_struct_t
 
+/**
+ * @brief Frees an RPC structure and all its contents
+ * @param rpc_struct Structure to free
+ */
 void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it's content
 
-int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key); //remove pointer type with key "key" from rpc_struct BUT DOESNT FREE it's data. RETURN 0 on success else 1
+/**
+ * @brief Making rpc_struct_t not to cleanup this pointer element on rpc_struct_cleanup / rpc_struct_free / rpc_struct_remove. You CAN access this element in rpc_struct even after rpc_struct_unlink
+ * @param rpc_struct RPC structure
+ * @param key Key of the element to remove
+ * @return 0 on success, 1 if key doesn't exist
+ */
+int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key);
 
+/**
+ * @brief Removes and frees an element from structure
+ * @param rpc_struct RPC structure
+ * @param key Key of the element to remove
+ * @return Operation status
+ * @note Using the removed element causes undefined behavior
+ */
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with key "key" from rpc_struct and free it.
-                                                                    //using removed element is undefined behavior because free will be done on next rpc_struct_set or rpc_struct_free
+                                                                    //using removed element is undefined behavior because free will be done on next rpc_struct_set or rpc_struct_free or manually by rpc_struct_cleanup
 
+/**
+ * @brief Serializes RPC structure to binary format
+ * @param rpc_struct Structure to serialize
+ * @param buflen_output Pointer to store the resulting buffer length
+ * @return Pointer to serialized data buffer
+ */
 char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output); //serialises rpc_struct into char*. Len will be outputed into buflen_output
 
+/**
+ * @brief Deserializes binary data to RPC structure
+ * @param buf Buffer with serialized data
+ * @return Pointer to deserialized RPC structure
+ */
 rpc_struct_t rpc_struct_unserialise(char* buf); //unserialise buf created with rpc_struct_serialise
 
+/**
+ * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
+ * @param original Structure to copy
+ * @return Pointer to the new copy
+ */
 rpc_struct_t rpc_struct_copy(rpc_struct_t original); //returns a copy of "original"
 
+/**
+ * @brief Gets the number of elements in an RPC structure
+ * @param rpc_struct RPC structure
+ * @return Number of elements
+ */
 size_t rpc_struct_length(rpc_struct_t rpc_struct); //return length of rpc_struct
 
+/**
+ * @brief Gets an array of keys from the structure
+ * @param rpc_struct RPC structure
+ * @return Array of string pointers to keys
+ */
 char** rpc_struct_getkeys(rpc_struct_t rpc_struct); //return array of char* keys to elements;
+
+/**
+ * @brief Gets the type of an element by key
+ * @param rpc_struct RPC structure
+ * @param key Element key
+ * @return Element type from rpc_types enumeration
+ */
 enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key); //gets type of element
 
+/**
+ * @brief Computes a hash value for the entire structure
+ * @param rpc_struct RPC structure
+ * @return Hash value
+ */
 uint64_t rpc_struct_hash(rpc_struct_t rpc_struct); //return a hash of rpc_struct
 
-//=====================================================
-
+/**
+ * @brief Checks if a type is a pointer type
+ * @param type Type to check
+ * @return Non-zero for pointer types, 0 otherwise
+ */
 int rpc_is_pointer(enum rpc_types type);
+
+/**
+ * @brief Frees a container element SHOULD NOT BE CALLED MANUALLY.
+ * @param element Element to free
+ */
 void rpc_container_free(struct rpc_container_element* element);
+
+/**
+ * @brief Cleans up pointer elements that was removed from rpc_struct. SHOULD NOT BE CALLED MANUALLY.
+ * @param rpc_struct Structure to clean up
+ */
 void rpc_struct_cleanup(rpc_struct_t rpc_struct);
+
+/**
+ * @param rpc_struct Get rpc_struct->run_GC SHOULD NOT BE CALLED MANUALLY.
+ * @return Value of rpc_struct->run_GC
+ */
 size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct);
+
+/**
+ * @brief Internal function for setting an element in structure, may be used to overcome type system, THINK BEFORE USING!
+ * @param rpc_struct RPC structure
+ * @param key Element key
+ * @param element Element to set
+ * @return Status code
+ */
 int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element);
 
+/**
+ * @brief Gets access to the internal hash table of an RPC structure SHOULD NOT BE CALLED MANUALLY!
+ * @param rpc_struct RPC structure
+ * @return Pointer to hash table
+ */
 hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
+
+/**
+ * @brief Maps C types to RPC types using _Generic
+ * @param Native_type The C type to map
+ * @return Corresponding RPC type
+ */
 
 #define ctype_to_rpc(Native_type) (_Generic((Native_type)0,                    \
                                     char                 : RPC_char,        \
@@ -118,32 +219,21 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
                                     default              : RPC_unknown      \
 ))
 
-#define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
-
-#define c_to_rpc(element,var)({\
-    element->type = ctype_to_rpc(typeof(var));\
-    if(rpc_is_pointer(element->type)){\
-        element->length = 0;\
-        element->data = (void*)var;\
-    } else {\
-        typeof(var) cpy_var = var;\
-        element->data = malloc(sizeof(cpy_var));\
-        assert(element->data);\
-        element->length = sizeof(cpy_var);\
-        memcpy(element->data,(void*)&cpy_var,element->length);\
-    }})
-
-//==================== public API's ===================
-
-/*Sets a structure element at rpc_struct with type of "input" and value of "input".
- *NOTE: If you are passing string literal you SHOULD cast it to char*
- *NOTE: strings(char*) are always copied when passing into structure
- *NOTE: you can pass void* or any other pointer into the struct but it WONT be serialised
- *NOTE: "key" are always strdup'd
+/**
+ * @brief Sets an element in the RPC structure
  *
- *EXAMPLE: rpc_struct_set(rpc_struct,"check_int",(uint64_t)12345678);
- *RETURN: 0 on success, else - element exist and you should remove it
-*/
+ * @param rpc_struct Target RPC structure
+ * @param key Element key
+ * @param input Value to set
+ * @return 0 on success, otherwise element exists and should be removed first
+ * 
+ * @note String literals must be explicitly cast to char*
+ * @note Strings are always copied when added to the structure
+ * @note Pointers can be stored but won't be serialized
+ * @note Keys are always duplicated with strdup
+ *
+ * @example rpc_struct_set(rpc_struct,"check_int",(uint64_t)12345678);
+ */
 #define rpc_struct_set(rpc_struct, key, input)({\
     int __ret = 1;\
     assert(key != NULL);\
@@ -154,19 +244,35 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
     }\
     (int)(__ret);})
 
-/*Get element from rpc_struct at key "key" and writes it's data into "output". If element "key" does NOT exist returns 1 else 0
- *NOTE: you SHOULD type only NAME of output variable into "output", NOT &output !!!
+/**
+ * @brief Gets an element from the RPC structure
  *
- *EXAMPLE: uint64_t input = 12345678;
- *         rpc_struct_set(rpc_struct,"check_int",input);
- *         uint64_t output;
- *         assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
- *         assert(output == input);
-*/
+ * @param rpc_struct Source RPC structure
+ * @param key Element key
+ * @param output Variable to store the result (use variable name, not &variable)
+ * @return 0 on success, 1 if element doesn't exist or type mismatch
+ * 
+ * @note Type checking is enforced with assertions
+ *
+ * @example 
+ *   uint64_t output;
+ *   assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
+ *   assert(output == input);
+ */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
 if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
+/**
+ * @brief Gets an element without type checking
+ *
+ * @param rpc_struct Source RPC structure
+ * @param key Element key
+ * @param output Variable to store the result
+ * @return 0 on success, 1 if element doesn't exist
+ * 
+ * @note Similar to rpc_struct_get but without type checking
+ * @warning May cause undefined behavior if types don't match
+ */
 #define rpc_struct_get_unsafe(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
 if(element != NULL){if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
-//=====================================================

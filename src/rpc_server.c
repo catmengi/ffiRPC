@@ -223,6 +223,7 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
     }
     rpc_thread_context_set(function->function_context);
 
+    void* return_is_ptr = NULL;
     int return_is = -1;
     uint64_t ffi_return = 0;
 
@@ -241,8 +242,8 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
         int do_set = 0;
         if(arg_info->raw_ptr == (void*)ffi_return){
             return_is = arg_info->index;
+            return_is_ptr = arg_info->raw_ptr;
             do_set = 1;
-            goto loop_end;  //skip switch case
         }
         switch(arg_info->type){
             case RPC_struct:
@@ -257,7 +258,6 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
             default: break;
         }
 
-    loop_end:
         if(do_set == 1){
             struct rpc_container_element* element = malloc(sizeof(*element));
             element->type = arg_info->type;
@@ -285,6 +285,11 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
                     memcpy(element->data,&ffi_return,element->length);
                 }
                 rpc_struct_set_internal(output,"return",element);
+                if(element->data == return_is_ptr){
+                    rpc_struct_unlink(output,"return"); //since unlink doesnt remove element from HT, 
+                                                        //we still can serialise it, but 2 rpc_structs wont cause double free
+                                                        //and we also should not have memory leak (UNCOMFIRMED, TODO: test it for leak)      
+                }
                 if(function->return_type == RPC_string) free((char*)ffi_return); //can free, because in rpc_struct_set_internal in was strdup-ed
             }
         }
