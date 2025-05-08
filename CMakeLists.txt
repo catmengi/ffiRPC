@@ -8,6 +8,7 @@ set(FFIRPC_BIN ${PROJECT_NAME})
 include_directories(include)
 
 set(SRC
+    ${SRC_DIR}/poll_network.c
     ${SRC_DIR}/rpc_server.c
     ${SRC_DIR}/rpc_sizedbuf.c 
     ${SRC_DIR}/rpc_struct.c

@@ -1,3 +1,27 @@
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
 #include "../include/rpc_server.h"
 #include "../include/rpc_thread_context.h"
 #include "../include/sc_queue.h"
@@ -6,13 +30,6 @@
 #include <ffi-x86_64.h>
 #include <ffi.h>
 #include <stdint.h>
-
-enum rpc_server_errors{
-    RPC_OK,
-    RPC_PROTOTYPE_DIFFERENT,
-    RPC_VARIADIC_NOT_ALLOWED,
-    RPC_FUNCTION_EXIST,
-};
 
 ffi_type* rpctype_to_libffi[RPC_duplicate] = {   //convert table used to convert from rpc_types to ffi type
     &ffi_type_void,
@@ -89,9 +106,9 @@ int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_typ
         function->return_type = return_type;
 
         assert(rpc_struct_set(rpc_server.functions,function_name,function) == 0);
-        return RPC_OK;
+        return ERR_RPC_OK;
     }
-    return RPC_FUNCTION_EXIST;
+    return ERR_RPC_FUNCTION_EXIST;
 }
 
 void rpc_server_remove_function(char* function_name){
@@ -154,10 +171,10 @@ exit:
 
 int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_t output){
     char key[sizeof(int) * 4];
-    if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return RPC_PROTOTYPE_DIFFERENT;
+    if(!rpc_server_compare_protos(arguments,function->prototype,function->prototype_len)) return ERR_RPC_PROTOTYPE_DIFFERENT;
 
      //libffi NOT allow types smaller than int exist in variadic arguments....
-     if(rpc_server_is_variadic(arguments,function->prototype_len) && rpc_server_is_variadic_allowed(arguments,function->prototype_len) == 0) return RPC_VARIADIC_NOT_ALLOWED;
+     if(rpc_server_is_variadic(arguments,function->prototype_len) && rpc_server_is_variadic_allowed(arguments,function->prototype_len) == 0) return ERR_RPC_VARIADIC_NOT_ALLOWED;
 
 
     ffi_cif cif;
@@ -272,5 +289,5 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
             }
         }
     }
-    return RPC_OK;
+    return ERR_RPC_OK;
 }
