@@ -29,8 +29,6 @@
 #include <assert.h>
 #include <string.h>
 
-#include <stdio.h> //debug
-
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -41,8 +39,6 @@
 
 struct poll_net{
     int active;
-    struct poll_connection connection;
-    void (*connection_free_cb)(struct poll_connection con, void* free_ctx);
 
     pthread_t accept_thread;
     pthread_t poll_thread;
@@ -53,31 +49,21 @@ struct poll_net{
 
     void* callback_ctx;
     struct poll_net_callbacks callbacks;
+
+    int sockfd; //should -1 before poll_net_start_accept
 };
 
 static void* accept_thread(void* paramP){
     poll_net_t net = paramP;
     while(net->active){
-        int netfd = accept(net->connection.sockfd,net->connection.sockaddr,&net->connection.sockaddr_len);
+        int netfd = accept(net->sockfd,NULL,NULL);
 
         if(netfd < 0){
             if(net->callbacks.accept_error_cb && net->active == 1) net->callbacks.accept_error_cb(net->callback_ctx);
             return NULL;
         }
 
-        if(net->nfds == net->fds_size - 1){
-            net->fds_size += MIN_POLLFD;
-            assert((net->fds = realloc(net->fds,(net->fds_size) * sizeof(*net->fds))));
-        }
-        if(net->nfds + 1 == RLIMIT_NOFILE){
-            shutdown(net->fds[net->nfds].fd,SHUT_RDWR);
-            close(net->fds[net->nfds].fd);
-        }
-
-        int fd_index = net->nfds++;
-        net->fds[fd_index].fd = netfd;
-        net->fds[fd_index].events = POLLIN | POLLRDHUP;
-        net->fds[fd_index].revents = 0;
+        poll_net_add_fd(net,netfd);
 
         if(net->callbacks.accept_cb) net->callbacks.accept_cb(netfd,net->callback_ctx);
     }
@@ -114,13 +100,13 @@ static void* poll_thread(void* paramP){
     return NULL;
 }
 
-poll_net_t poll_net_init(uint16_t port, struct poll_net_callbacks cbs, void* cb_ctx, struct poll_connection connection){
+poll_net_t poll_net_init(uint16_t port, struct poll_net_callbacks cbs, void* cb_ctx){
     poll_net_t net = calloc(1,sizeof(*net)); assert(net);
 
     net->active = 1;
     net->callback_ctx = cb_ctx;
     net->callbacks = cbs;
-    net->connection = connection;
+    net->sockfd = -1;
 
     net->fds_size = MIN_POLLFD;
     net->nfds = 0;
@@ -132,10 +118,11 @@ poll_net_t poll_net_init(uint16_t port, struct poll_net_callbacks cbs, void* cb_
     return net;
 }
 
-void poll_net_start_accept(poll_net_t net){
+void poll_net_start_accept(poll_net_t net, int sockfd){
+    net->sockfd = sockfd;
     assert(pthread_create(&net->accept_thread,NULL,accept_thread,net) == 0);
 }
-void poll_net_add_fd(poll_net_t net, int fd){
+int poll_net_add_fd(poll_net_t net, int fd){
     assert(net);
     assert(fd >= 0);
 
@@ -147,20 +134,25 @@ void poll_net_add_fd(poll_net_t net, int fd){
         if(net->nfds + 1 == RLIMIT_NOFILE){
             shutdown(net->fds[net->nfds].fd,SHUT_RDWR);
             close(net->fds[net->nfds].fd);
+            return 1;
         }
 
         int fd_index = net->nfds++;
         net->fds[fd_index].fd = fd;
         net->fds[fd_index].events = POLLIN | POLLRDHUP;
         net->fds[fd_index].revents = 0;
+        return 0;
     }
+    return 1;
 }
 
-void poll_net_free(poll_net_t net, void (*connection_free_cb)(struct poll_connection con, void* free_ctx), void* free_ctx){
+void poll_net_free(poll_net_t net){
     net->active = 0;
 
-    shutdown(net->connection.sockfd,SHUT_RDWR);
-    close(net->connection.sockfd);
+    if(net->sockfd != -1){
+        shutdown(net->sockfd,SHUT_RDWR);
+        close(net->sockfd);
+    }
 
     if(net->accept_thread > 0) pthread_join(net->accept_thread,NULL);
     pthread_join(net->poll_thread,NULL);
@@ -169,7 +161,6 @@ void poll_net_free(poll_net_t net, void (*connection_free_cb)(struct poll_connec
         shutdown(net->fds[i].fd,SHUT_RDWR);
         close(net->fds[i].fd);
     }
-    if(connection_free_cb) connection_free_cb(net->connection,free_ctx);
     free(net->fds);
     free(net);
 }
