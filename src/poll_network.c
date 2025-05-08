@@ -59,7 +59,11 @@ static void* accept_thread(void* paramP){
     poll_net_t net = paramP;
     while(net->active){
         int netfd = accept(net->connection.sockfd,net->connection.sockaddr,&net->connection.sockaddr_len);
-        assert(netfd);
+
+        if(netfd < 0){
+            if(net->callbacks.accept_error_cb && net->active == 1) net->callbacks.accept_error_cb(net->callback_ctx);
+            return NULL;
+        }
 
         if(net->nfds == net->fds_size - 1){
             net->fds_size += MIN_POLLFD;
@@ -154,6 +158,9 @@ void poll_net_add_fd(poll_net_t net, int fd){
 
 void poll_net_free(poll_net_t net, void (*connection_free_cb)(struct poll_connection con, void* free_ctx), void* free_ctx){
     net->active = 0;
+
+    shutdown(net->connection.sockfd,SHUT_RDWR);
+    close(net->connection.sockfd);
 
     if(net->accept_thread > 0) pthread_join(net->accept_thread,NULL);
     pthread_join(net->poll_thread,NULL);

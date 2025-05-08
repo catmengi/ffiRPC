@@ -50,6 +50,7 @@ struct poll_connection {
  * Callback functions for network events
  */
 struct poll_net_callbacks {
+    void (*accept_error_cb)(void* ctx);       /* Called when accept fails */
     void (*accept_cb)(int fd, void* ctx);     /* Called when new connection is accepted */
     void (*disconnect_cb)(int fd, void* ctx); /* Called when connection is closed */
     void (*read_cb)(int fd, void* ctx);       /* Called when data is available to read */
