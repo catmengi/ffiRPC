@@ -10,6 +10,9 @@ struct rpc_container_element{
     void* data;
     size_t length;
     enum rpc_types type;
+
+    atomic_size_t refcount;
+    atomic_size_t copy_count;
 };
 
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;

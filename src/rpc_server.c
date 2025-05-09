@@ -223,8 +223,7 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
     }
     rpc_thread_context_set(function->function_context);
 
-    void* return_is_ptr = NULL;
-    int return_is = -1;
+    void* return_is = NULL;
     uint64_t ffi_return = 0;
 
     ffi_call(&cif,function->function_ptr,&ffi_return,ffi_arguments);
@@ -241,8 +240,7 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
 
         int do_set = 0;
         if(arg_info->raw_ptr == (void*)ffi_return){
-            return_is = arg_info->index;
-            return_is_ptr = arg_info->raw_ptr;
+            return_is = arg_info->raw_ptr;
             do_set = 1;
         }
         switch(arg_info->type){
@@ -269,29 +267,19 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
     }
     sc_queue_term(&updated_arguments);
 
-    if(return_is != -1){
-        uint32_t cast = return_is;
-        assert(rpc_struct_set(output,"return_is",cast) == 0); //fuck you GCC for this warning, fuck you C compilers, fuck you all
-    } else {
-        if(function->return_type != RPC_none && function->return_type != RPC_unknown){ //we cannot serialise RPC_unknown since it is a raw pointer
-            if(!(rpc_is_pointer(function->return_type) && (void*)ffi_return == NULL)){
-                struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
-                element->type = function->return_type;
-                element->length = rpctype_sizes[element->type];
-                if(rpc_is_pointer(element->type)){
-                    element->data = (void*)ffi_return;
-                } else {
-                    element->data = malloc(element->length); assert(element->data);
-                    memcpy(element->data,&ffi_return,element->length);
-                }
-                rpc_struct_set_internal(output,"return",element);
-                if(element->data == return_is_ptr){
-                    rpc_struct_unlink(output,"return"); //since unlink doesnt remove element from HT, 
-                                                        //we still can serialise it, but 2 rpc_structs wont cause double free
-                                                        //and we also should not have memory leak (UNCOMFIRMED, TODO: test it for leak)      
-                }
-                if(function->return_type == RPC_string) free((char*)ffi_return); //can free, because in rpc_struct_set_internal in was strdup-ed
+    if(function->return_type != RPC_none && function->return_type != RPC_unknown){ //we cannot serialise RPC_unknown since it is a raw pointer
+        if(!(rpc_is_pointer(function->return_type) && (void*)ffi_return == NULL)){
+            struct rpc_container_element* element = calloc(1,sizeof(*element)); assert(element);
+            element->type = function->return_type;
+            element->length = rpctype_sizes[element->type];
+            if(rpc_is_pointer(element->type)){
+                element->data = (void*)ffi_return;
+            } else {
+                element->data = malloc(element->length); assert(element->data);
+                memcpy(element->data,&ffi_return,element->length);
             }
+            rpc_struct_set_internal(output,"return",element);
+            if(function->return_type == RPC_string) free((char*)ffi_return); //can free, because in rpc_struct_set_internal in was strdup-ed
         }
     }
     return ERR_RPC_OK;

@@ -42,7 +42,7 @@ int hashtable_strcmp_wrap(char* s1, char* s2){
 unsigned int hashtable_find_slot(hashtable* t, char* key)
 {
 	int index = hashtable_hash(key) % t->capacity;
-	while (t->body[index].key != NULL && hashtable_strcmp_wrap(t->body[index].key,key) != 0) {
+	while (t->body[index].key != NULL &&  t->body[index].key != (char*)0xDEAD && hashtable_strcmp_wrap(t->body[index].key,key) != 0) {
 		index = (index + 1) % t->capacity;
 	}
 	return index;

@@ -33,6 +33,15 @@
 #include <assert.h>
 #include <stdlib.h>
 
+static hashtable* ADF_ht = NULL;
+
+__attribute__((constructor))
+void rpc_struct_ADF_init(void){
+    if(ADF_ht == NULL){
+        ADF_ht = hashtable_create();
+    }
+}
+
 size_t rpctype_sizes[RPC_duplicate] = {
     0,
     sizeof(char),
@@ -45,23 +54,7 @@ size_t rpctype_sizes[RPC_duplicate] = {
 
 struct _rpc_struct{
     hashtable* ht;
-
-    hashtable** refcounts;
-    atomic_size_t refcounts_len;
-    atomic_size_t refcounts_index;
-    struct sc_queue_int REF_freed;
-
-    hashtable* ADF_ht;  //used to not free elements that have different keys but same data
-    atomic_size_t* ADF_refcount;
-
-    rpc_struct_t* copy;
-    atomic_size_t copy_len;
-    atomic_size_t copy_index;
-    struct sc_queue_int CPY_freed;
-
     atomic_bool run_GC;
-
-    rpc_struct_t parent;
 };
 
 rpc_struct_t rpc_struct_create(void){
@@ -69,25 +62,7 @@ rpc_struct_t rpc_struct_create(void){
     assert(rpc_struct);
 
     rpc_struct->ht = hashtable_create();
-    rpc_struct->ADF_ht = hashtable_create();
-
-    rpc_struct->refcounts_len = 4;
-    rpc_struct->refcounts_index = 0;
-    rpc_struct->refcounts = calloc(rpc_struct->refcounts_len,sizeof(*rpc_struct->refcounts)); assert(rpc_struct->refcounts);
-    rpc_struct->refcounts[rpc_struct->refcounts_index++] = rpc_struct->ht;
-
-    rpc_struct->ADF_refcount = malloc(sizeof(*rpc_struct->ADF_refcount)); assert(rpc_struct->ADF_refcount);
-    *rpc_struct->ADF_refcount = 1;
-
-    rpc_struct->copy_len = 0;
-    rpc_struct->copy_index = 0;
-    rpc_struct->copy = NULL;
-
     rpc_struct->run_GC = 0;
-    rpc_struct->parent = NULL;
-
-    sc_queue_init(&rpc_struct->CPY_freed);
-    sc_queue_init(&rpc_struct->REF_freed);
 
     return rpc_struct;
 }
@@ -121,35 +96,40 @@ void rpc_container_free(struct rpc_container_element* element){
 }
 
 size_t rpc_struct_refcountof(rpc_struct_t rpc_struct, void* cmp){
-    size_t refcount = 0;
-    for(size_t r = 0; r < rpc_struct->refcounts_index; r++){
-        if(rpc_struct->refcounts[r]){
-            for(size_t j = 0; j < rpc_struct->refcounts[r]->capacity; j++){
-                if(rpc_struct->refcounts[r]->body[j].key != (char*)0xDEAD &&
-                    rpc_struct->refcounts[r]->body[j].key != NULL && rpc_struct->refcounts[r]->body[j].value != NULL){
+//    size_t refcount = 0;
+//    for(size_t r = 0; r < rpc_struct->refcounts_index; r++){
+//        if(rpc_struct->refcounts[r]){
+//            for(size_t j = 0; j < rpc_struct->refcounts[r]->capacity; j++){
+//                if(rpc_struct->refcounts[r]->body[j].key != (char*)0xDEAD &&
+//                    rpc_struct->refcounts[r]->body[j].key != NULL && rpc_struct->refcounts[r]->body[j].value != NULL){
+//
+//                    struct rpc_container_element* check_element = rpc_struct->refcounts[r]->body[j].value;
+//                    if(check_element->data == cmp) refcount++; //belive me, this is how it should be done
+//                }
+//            }
+//        }
+//    }
+    char* NOdoublefree = malloc(sizeof(void*) * 4);
+    sprintf(NOdoublefree,"%p",cmp);
+    struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
+    free(NOdoublefree);
 
-                    struct rpc_container_element* check_element = rpc_struct->refcounts[r]->body[j].value;
-                    if(check_element->data == cmp) refcount++; //belive me, this is how it should be done
-                }
-            }
-        }
-    }
-    return refcount;
+    return (GC_copy == NULL ? assert(GC_copy),0 : GC_copy->refcount);
 }
 
 void rpc_struct_cleanup(rpc_struct_t rpc_struct){
-    if(rpc_struct->ADF_ht->size > 0){
-        for(size_t i = 0; i < rpc_struct->ADF_ht->capacity; i++){
-            if(rpc_struct->ADF_ht->body[i].key != NULL && rpc_struct->ADF_ht->body[i].key != (char*)0xDEAD && rpc_struct->ADF_ht->body[i].value != NULL){
-                struct rpc_container_element* GC_copy = rpc_struct->ADF_ht->body[i].value;
+    if(ADF_ht->size > 0){
+        for(size_t i = 0; i < ADF_ht->capacity; i++){
+            if(ADF_ht->body[i].key != NULL && ADF_ht->body[i].key != (char*)0xDEAD && ADF_ht->body[i].value != NULL){
+                struct rpc_container_element* GC_copy = ADF_ht->body[i].value;
 
                 if(rpc_struct_refcountof(rpc_struct,GC_copy->data) == 0){
+                    char* key_cpy = ADF_ht->body[i].key;
+                    hashtable_remove(ADF_ht,key_cpy);
+                    free(key_cpy);
+
                     rpc_container_free(GC_copy);
                     free(GC_copy);
-
-                    char* key_cpy = rpc_struct->ADF_ht->body[i].key;
-                    hashtable_remove(rpc_struct->ADF_ht,key_cpy);
-                    free(key_cpy);
                 }
             }
         }
@@ -167,68 +147,27 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
     }
     rpc_struct_cleanup(rpc_struct); //need to be sure we removed all elements
 
-    if(--(*rpc_struct->ADF_refcount) == 0) {free(rpc_struct->ADF_refcount);hashtable_destroy(rpc_struct->ADF_ht);}
     hashtable_destroy(rpc_struct->ht);
 
-    for(size_t i = 0;  i < rpc_struct->copy_index; i++){
-        rpc_struct_t copy = rpc_struct->copy[i];
-        if(copy){
-            for(size_t j = 0; j < copy->refcounts_index; j++){
-                if(copy->refcounts[j] == rpc_struct->ht){
-                    assert(j != 0); //sanity check
-                    copy->refcounts[j] = NULL;
-                    sc_queue_add_last(&copy->REF_freed,j);
-                }
-            }
-        }
-    }
-    if(rpc_struct->parent){
-        rpc_struct_t current = rpc_struct->parent;
-        while(current){
-            for(size_t j = 0; j < current->refcounts_index; j++){
-                if(current->refcounts[j] == rpc_struct->ht){
-                    current->refcounts[j] = NULL;
-                    sc_queue_add_last(&current->REF_freed,j);
-                }
-            }
-            for(size_t i = 0; i < current->copy_index; i++){
-                if(current->copy[i] == rpc_struct){
-                    current->copy[i] = NULL;
-                    sc_queue_add_last(&current->CPY_freed,i);
-                }
-            }
-            current = current->parent;
-        }
-    } else {
-        for(size_t i = 0; i < rpc_struct->copy_index; i++){
-            rpc_struct_t copy = rpc_struct->copy[i];
-            if(copy) copy->parent = NULL;
-        }
-    }
-    sc_queue_term(&rpc_struct->REF_freed);
-    sc_queue_term(&rpc_struct->CPY_freed);
-
-    free(rpc_struct->copy);
-    free(rpc_struct->refcounts);
     free(rpc_struct);
 }
 
-int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key){
-    if(rpc_struct == NULL || key == NULL) return 1;
+int rpc_struct_unlink(rpc_struct_t rpc_struct, void* ptr){
+    if(rpc_struct == NULL || ptr == NULL) return 1;
 
-    struct rpc_container_element* element = NULL;
-    if((element = hashtable_get(rpc_struct->ht,key)) != NULL){
-        if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-            char NOdoublefree[sizeof(void*) * 4];
-            sprintf(NOdoublefree,"%p",element->data);
-
-            char* ADF_free_key = rpc_struct->ADF_ht->body[hashtable_find_slot(rpc_struct->ADF_ht,NOdoublefree)].key;
-            free(hashtable_get(rpc_struct->ADF_ht,NOdoublefree));
-            hashtable_remove(rpc_struct->ADF_ht,NOdoublefree); //removing this element from rpc_struct's garbage collector/reference counter/rpc_struct_cleanup()
-            free(ADF_free_key);
-            return 0;
+        char* NOdoublefree = malloc(sizeof(void*) * 4);
+        sprintf(NOdoublefree,"%p",ptr);
+        struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
+        if(GC_copy){
+            if(rpc_is_pointer(GC_copy->type) && GC_copy->type != RPC_string && GC_copy->type != RPC_unknown){
+                char* ADF_free_key = ADF_ht->body[hashtable_find_slot(ADF_ht,NOdoublefree)].key;
+                free(GC_copy);
+                hashtable_remove(ADF_ht,NOdoublefree); //removing this element from rpc_struct's garbage collector/reference counter/rpc_struct_cleanup()
+                free(ADF_free_key);
+                return 0;
+            }
         }
-    }
+        free(NOdoublefree);
     return 1;
 }
 
@@ -241,6 +180,11 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
         hashtable_remove(rpc_struct->ht,key);
 
         if(rpc_is_pointer(element->type) && element->type != RPC_string){ //ignore strings because they are unique (since strdup'd)
+            char NOdoublefree[sizeof(void*) * 4];
+            sprintf(NOdoublefree,"%p",element->data);
+            struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
+            if(GC_copy) GC_copy->refcount--;
+
             free(element);
             free(free_key); //since key is strdup() ed we should free it
             rpc_struct->run_GC = 1; //run GC on next rpc_struct_set
@@ -268,14 +212,14 @@ struct rpc_struct_duplicate_info{
 
 struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output){
     rpc_struct_cleanup(rpc_struct);
-    *len_output = rpc_struct->ADF_ht->size;
+    *len_output = ADF_ht->size;
     if(*len_output > 0){
         int DI = 0;
         struct rpc_struct_duplicate_info* duplicate_info = calloc(*len_output,sizeof(*duplicate_info)); assert(duplicate_info);
-        for(size_t i = 0; i < rpc_struct->ADF_ht->capacity; i++){
+        for(size_t i = 0; i < ADF_ht->capacity; i++){
             size_t start_from = 0;
-            if(rpc_struct->ADF_ht->body[i].key != NULL && rpc_struct->ADF_ht->body[i].key != (char*)0xDEAD && rpc_struct->ADF_ht->body[i].value != NULL){
-                struct rpc_container_element* GC_copy = rpc_struct->ADF_ht->body[i].value;
+            if(ADF_ht->body[i].key != NULL && ADF_ht->body[i].key != (char*)0xDEAD && ADF_ht->body[i].value != NULL){
+                struct rpc_container_element* GC_copy = ADF_ht->body[i].value;
                 duplicate_info[DI].type = GC_copy->type;
 
                 for(size_t j = 0; j < rpc_struct->ht->capacity; j++){
@@ -293,17 +237,18 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
                 size_t dupsI = 0;
                 for(size_t j = start_from; j < rpc_struct->ht->capacity; j++){
                     if(rpc_struct->ht->body[j].key != (char*)0xDEAD && rpc_struct->ht->body[j].key != NULL && rpc_struct->ht->body[j].value != NULL){
-                        assert(duplicate_info[DI].original); //Shit cannot happen there!
-                        struct rpc_container_element* check_element = rpc_struct->ht->body[j].value;
-                        if(duplicate_info[DI].duplicates == NULL){
-                            duplicate_info[DI].duplicates = calloc(duplicate_info[DI].duplicates_len,sizeof(*duplicate_info[DI].duplicates));
-                            assert(duplicate_info[DI].duplicates);
-                        }
+                        if(duplicate_info[DI].original){
+                            struct rpc_container_element* check_element = rpc_struct->ht->body[j].value;
+                            if(duplicate_info[DI].duplicates == NULL){
+                                duplicate_info[DI].duplicates = calloc(duplicate_info[DI].duplicates_len,sizeof(*duplicate_info[DI].duplicates));
+                                assert(duplicate_info[DI].duplicates);
+                            }
 
-                        if(duplicate_info[DI].original != check_element && duplicate_info[DI].original->data == check_element->data){
-                            assert(dupsI != duplicate_info[DI].duplicates_len); //No no no mister pointer you will not go to your SIGSEGV you will go in this ebaniy assert blyat
-                            duplicate_info[DI].duplicates[dupsI] = rpc_struct->ht->body[j].key;
-                            dupsI++;
+                            if(duplicate_info[DI].original != check_element && duplicate_info[DI].original->data == check_element->data){
+                                assert(dupsI != duplicate_info[DI].duplicates_len); //No no no mister pointer you will not go to your SIGSEGV you will go in this ebaniy assert blyat
+                                duplicate_info[DI].duplicates[dupsI] = rpc_struct->ht->body[j].key;
+                                dupsI++;
+                            }
                         }
                     }
                 }
@@ -445,10 +390,10 @@ rpc_struct_t rpc_struct_unserialise(char* buf){
                 default: break; //UNKNOWN TYPE, NEED TO DIE
             }
 
-            char NOdoublefree[sizeof(void*) * 4];
+            char* NOdoublefree = malloc(sizeof(void*) * 4);
             sprintf(NOdoublefree,"%p",unserialised);
 
-            assert(hashtable_get(new->ADF_ht,NOdoublefree) == NULL); //asserting if element unique!
+            assert(hashtable_get(ADF_ht,NOdoublefree) == NULL); //asserting if element unique!
 
             struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
             struct rpc_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);
@@ -458,8 +403,9 @@ rpc_struct_t rpc_struct_unserialise(char* buf){
             element->length = 0;
             *GC_copy = *element;
 
-            hashtable_set(new->ADF_ht,strdup(NOdoublefree),GC_copy);
+            hashtable_set(ADF_ht,strdup(NOdoublefree),GC_copy);
             hashtable_set(new->ht,strdup(serialise.key),element);
+            free(NOdoublefree);
         } else if(serialise.type != RPC_duplicate){
             struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
 
@@ -488,14 +434,13 @@ rpc_struct_t rpc_struct_unserialise(char* buf){
 
 rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     rpc_struct_t copy = rpc_struct_create();
-    copy->parent = original;
 
     copy->ht->capacity = original->ht->capacity;
     copy->ht->size = original->ht->size;
     assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
     memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
 
-    for(size_t i = 0; i <copy->ht->capacity; i++){
+    for(size_t i = 0; i < copy->ht->capacity; i++){
         if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
             copy->ht->body[i].key = strdup(copy->ht->body[i].key); //recoping keys because it WILL cause double-free if we not done this
             copy->ht->body[i].value = copy((struct rpc_container_element*)copy->ht->body[i].value);
@@ -505,51 +450,14 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
                 void* tmp = malloc(element->length); assert(tmp);
                 memcpy(tmp,element->data,element->length);
                 element->data = tmp;
+            } else if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
+                char* NOdoublefree = malloc(sizeof(void*) * 4);
+                sprintf(NOdoublefree,"%p",element->data);
+                struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
+                GC_copy->refcount += (GC_copy->refcount / GC_copy->copy_count++);
+                free(NOdoublefree);
             }
         }
-    }
-
-    hashtable_destroy(copy->ADF_ht);
-    copy->ADF_ht = original->ADF_ht;
-
-    free(copy->ADF_refcount);
-    copy->ADF_refcount = original->ADF_refcount;
-    (*copy->ADF_refcount)++;
-
-    rpc_struct_t current = original;
-    while(current){
-        size_t index = 0;
-        if(sc_queue_size(&current->REF_freed) == 0){
-            if(current->refcounts_len - 1 == current->refcounts_index){
-                current->refcounts_len += (current->refcounts_len / 2 == 0 ? 1 : current->refcounts_len / 2 );
-                assert((current->refcounts = realloc(current->refcounts, current->refcounts_len * sizeof(*current->refcounts))));
-            }
-            index = current->refcounts_index++;
-        } else index = sc_queue_del_first(&current->REF_freed);
-
-        current->refcounts[index] = copy->ht;
-
-        if(copy->refcounts_len - 1 == copy->refcounts_index){
-            copy->refcounts_len += (copy->refcounts_len / 2 == 0 ? 1 : copy->refcounts_len / 2 );
-            assert((copy->refcounts = realloc(copy->refcounts, copy->refcounts_len * sizeof(*copy->refcounts))));
-        }
-        copy->refcounts[copy->refcounts_index++] = current->ht;
-
-        if(current->copy == NULL){
-            current->copy_len = 4;
-            current->copy_index = 0;
-            current->copy = malloc(current->copy_len * sizeof(*current->copy)); assert(current->copy);
-        }
-        size_t cpy_index = 0;
-        if(sc_queue_size(&current->CPY_freed) == 0){
-            if(current->copy_len - 1 == current->copy_index){
-                current->copy_len += (current->copy_len / 2 == 0 ? 1 : current->copy_len / 2 );
-                assert((current->copy = realloc(current->copy,current->copy_len * sizeof(*current->copy))));
-            }
-            cpy_index = current->copy_index++;
-        } else cpy_index = sc_queue_del_first(&current->CPY_freed);
-        current->copy[cpy_index] = copy;
-        current = current->parent;
     }
     return copy;
 }
@@ -589,15 +497,20 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
                 element->length = strlen(element->data) + 1;
             }
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-                char NOdoublefree[sizeof(void*) * 4];
+                char* NOdoublefree = malloc(sizeof(void*) * 4);
                 sprintf(NOdoublefree,"%p",element->data);
-                if(hashtable_get(rpc_struct->ADF_ht,NOdoublefree) == NULL){
-                    struct rpc_container_element* GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);
+                struct rpc_container_element* GC_copy = NULL;
+                if((GC_copy = hashtable_get(ADF_ht,NOdoublefree)) == NULL){
+                    GC_copy = malloc(sizeof(*GC_copy)); assert(GC_copy);
+
                     GC_copy->data = element->data;
                     GC_copy->length = element->length;
                     GC_copy->type = element->type;
-                    hashtable_set(rpc_struct->ADF_ht,strdup(NOdoublefree),GC_copy);
-                }
+                    GC_copy->refcount = 1;
+                    GC_copy->copy_count = 1;
+                    hashtable_set(ADF_ht,strdup(NOdoublefree),GC_copy);
+                } else GC_copy->refcount++;
+                free(NOdoublefree);
             }
             hashtable_set(rpc_struct->ht,strdup(key),element);
             return 0;

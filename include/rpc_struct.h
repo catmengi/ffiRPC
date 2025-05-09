@@ -96,10 +96,10 @@ void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it'
 /**
  * @brief Making rpc_struct_t not to cleanup this pointer element on rpc_struct_cleanup / rpc_struct_free / rpc_struct_remove. You CAN access this element in rpc_struct even after rpc_struct_unlink
  * @param rpc_struct RPC structure
- * @param key Key of the element to remove
+ * @param ptr Pointer to pointer type to unlink
  * @return 0 on success, 1 if key doesn't exist
  */
-int rpc_struct_unlink(rpc_struct_t rpc_struct, char* key);
+int rpc_struct_unlink(rpc_struct_t rpc_struct, void* ptr);
 
 /**
  * @brief Removes and frees an element from structure
