@@ -98,6 +98,8 @@ void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it'
  * @param rpc_struct RPC structure
  * @param ptr Pointer to pointer type to unlink
  * @return 0 on success, 1 if key doesn't exist
+ * @note rpc_struct_unlink will unlink this pointer from ALL rpc_struct_t in proccess!
+ * @note next rpc_struct_set (rpc_struct_set_internal) will link ALL unlinked elements with this pointer again!
  */
 int rpc_struct_unlink(rpc_struct_t rpc_struct, void* ptr);
 

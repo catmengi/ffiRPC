@@ -454,8 +454,9 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
                 char* NOdoublefree = malloc(sizeof(void*) * 4);
                 sprintf(NOdoublefree,"%p",element->data);
                 struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
-                GC_copy->refcount += (GC_copy->refcount / GC_copy->copy_count++);
                 free(NOdoublefree);
+
+                if(GC_copy) GC_copy->refcount += (GC_copy->refcount / GC_copy->copy_count++);
             }
         }
     }
