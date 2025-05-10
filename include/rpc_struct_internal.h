@@ -12,7 +12,7 @@ struct rpc_container_element{
     enum rpc_types type;
 
     atomic_size_t refcount;
-    atomic_size_t copy_count;
+    atomic_size_t copy_count; //used to properly increment refcount of copy
 };
 
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;

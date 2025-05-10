@@ -94,16 +94,6 @@ rpc_struct_t rpc_struct_create(void);  //creates a new rpc_struct_t
 void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it's content
 
 /**
- * @brief Making rpc_struct_t not to cleanup this pointer element on rpc_struct_cleanup / rpc_struct_free / rpc_struct_remove. You CAN access this element in rpc_struct even after rpc_struct_unlink
- * @param rpc_struct RPC structure
- * @param ptr Pointer to pointer type to unlink
- * @return 0 on success, 1 if key doesn't exist
- * @note rpc_struct_unlink will unlink this pointer from ALL rpc_struct_t in proccess!
- * @warning YOU SHOULD NOT rpc_struct_set OR rpc_struct_set_internal OBJECT WITH SAME ptr INTO THE SAME rpc_struct_t IF THERE WAS MORE THAN 1 ELEMENTS WITH SAME ptr BEFORE rpc_struct_unlink OTHER WISE YOU WILL HAVE DOUBLE FREE!
- */
-int rpc_struct_unlink(rpc_struct_t rpc_struct, void* ptr);
-
-/**
  * @brief Removes and frees an element from structure
  * @param rpc_struct RPC structure
  * @param key Key of the element to remove
@@ -112,6 +102,21 @@ int rpc_struct_unlink(rpc_struct_t rpc_struct, void* ptr);
  */
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with key "key" from rpc_struct and free it.
                                                                     //using removed element is undefined behavior because free will be done on next rpc_struct_set or rpc_struct_free or manually by rpc_struct_cleanup
+/**
+ * @brief Increment reference counter for pointer type ptr
+ * @param ptr Pointer that isnt RPC_string or RPC_unknown and have been set to any rpc_struct_t in current proccess
+ * @param increment_by increment reference counter by
+ * @return 0 if item is valid, 1 item invalid or doesnt exist!
+ */
+int rpc_struct_refcount_increment(void* ptr, size_t increment_by);
+
+/**
+ * @brief decrement reference counter for pointer type ptr
+ * @param ptr Pointer that isnt RPC_string or RPC_unknown and have been set to any rpc_struct_t in current proccess
+ * @param decrement_by decrement reference counter by
+ * @return 0 if item is valid, 1 item invalid or doesnt exist!
+ */
+int rpc_struct_refcount_decrement(void* ptr, size_t decrement_by);
 
 /**
  * @brief Serializes RPC structure to binary format
@@ -178,16 +183,9 @@ int rpc_is_pointer(enum rpc_types type);
 void rpc_container_free(struct rpc_container_element* element);
 
 /**
- * @brief Cleans up pointer elements that was removed from rpc_struct. SHOULD NOT BE CALLED MANUALLY.
- * @param rpc_struct Structure to clean up
+ * @brief Cleans up pointer elements that was removed from rpc_struct.
  */
-void rpc_struct_cleanup(rpc_struct_t rpc_struct);
-
-/**
- * @param rpc_struct Get rpc_struct->run_GC SHOULD NOT BE CALLED MANUALLY.
- * @return Value of rpc_struct->run_GC
- */
-size_t rpc_struct_get_runGC(rpc_struct_t rpc_struct);
+void rpc_struct_cleanup();
 
 /**
  * @brief Internal function for setting an element in structure, may be used to overcome type system, THINK BEFORE USING!
@@ -248,9 +246,9 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
     int __ret = 1;\
     assert(key != NULL);\
     if(rpc_struct_typeof(rpc_struct, key) == 0){\
-        struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);\
-        c_to_rpc(element,input);\
-        __ret = rpc_struct_set_internal(rpc_struct,key,element);\
+        struct rpc_container_element* __element = malloc(sizeof(*__element)); assert(__element);\
+        c_to_rpc(__element,input);\
+        __ret = rpc_struct_set_internal(rpc_struct,key,__element);\
     }\
     (int)(__ret);})
 
