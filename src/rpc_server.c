@@ -24,12 +24,23 @@
 
 #include "../include/rpc_server.h"
 #include "../include/rpc_thread_context.h"
+#include "../include/poll_network.h"
 #include "../include/sc_queue.h"
+#include "../include/C-Thread-Pool/thpool.h"
 
 #include <assert.h>
-#include <ffi-x86_64.h>
 #include <ffi.h>
 #include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#define RPC_SERVER_ALLOC_MIN_PORTS 16
+#define RPC_SERVER_LISTEN_BACKLOG 1024
 
 ffi_type* rpctype_to_libffi[RPC_duplicate] = {   //convert table used to convert from rpc_types to ffi type
     &ffi_type_void,
@@ -56,19 +67,44 @@ typedef struct rpc_function{
 }*rpc_function_t;
 
 static struct rpc_server{
+    threadpool execution_pool;
+
     rpc_struct_t functions;
+
     rpc_struct_t users;
+    rpc_struct_t fd_users_map;
+
+    size_t network_size;
+    size_t network_index;
+    poll_net_t* network;
+
+    struct poll_net_callbacks network_cbs;
+
 }rpc_server;
 
 __attribute__((constructor))
-void rpc_server_init(){ //should be called once!
+void rpc_server_init(){
     rpc_init_thread_context();
+    int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+    rpc_server.execution_pool = thpool_init(cpu_count);
+
     rpc_server.functions = rpc_struct_create();
     rpc_server.users = rpc_struct_create();
+    rpc_server.fd_users_map = rpc_struct_create();
+
+    rpc_server.network_size = RPC_SERVER_ALLOC_MIN_PORTS;
+    rpc_server.network_index = 0;
+    rpc_server.network = malloc(rpc_server.network_size * sizeof(*rpc_server.network)); assert(rpc_server.network);
 }
 
 __attribute((destructor))
 void rpc_server_deinit(){
+    for(size_t i = 0; i < rpc_server.network_index; i++){
+        poll_net_stop_accept(rpc_server.network[i]);
+    }
+    thpool_wait(rpc_server.execution_pool);
+    thpool_destroy(rpc_server.execution_pool);
+
     char** FN_keys = rpc_struct_getkeys(rpc_server.functions);
     for(size_t i = 0; i < rpc_struct_length(rpc_server.functions); i++){
         rpc_server_remove_function(FN_keys[i]);
@@ -82,6 +118,17 @@ void rpc_server_deinit(){
     }
     free(USERS_keys);
     rpc_struct_free(rpc_server.users);
+
+    char** FD_USERS_keys = rpc_struct_getkeys(rpc_server.fd_users_map);
+    for(size_t i = 0; i < rpc_struct_length(rpc_server.fd_users_map); i++){
+        //do something
+    }
+    free(FD_USERS_keys);
+    rpc_struct_free(rpc_server.fd_users_map);
+    for(size_t i = 0; i < rpc_server.network_index; i++){
+        poll_net_free(rpc_server.network[i]);
+    }
+    free(rpc_server.network);
 
     rpc_deinit_thread_context();
     memset(&rpc_server,0,sizeof(rpc_server));
@@ -283,4 +330,25 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
         }
     }
     return ERR_RPC_OK;
+}
+
+void rpc_server_launch_port(uint16_t port){
+    if(rpc_server.network_index == rpc_server.network_size - 1){
+        rpc_server.network_size += RPC_SERVER_ALLOC_MIN_PORTS;
+        assert((rpc_server.network = realloc(rpc_server.network,rpc_server.network_size * sizeof(*rpc_server.network))) != NULL);
+    }
+    int net_index = rpc_server.network_index++;
+    rpc_server.network[net_index] = poll_net_init(rpc_server.network_cbs,NULL);
+
+    int listen_fd = socket(AF_INET,SOCK_STREAM,0);
+    assert(listen_fd >= 0);
+    setsockopt(listen_fd,SOL_SOCKET,SO_REUSEADDR,&(int){1},sizeof(int));
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    assert(bind(listen_fd,(struct sockaddr*)&server_addr,sizeof(server_addr)) == 0);
+    assert(listen(listen_fd,RPC_SERVER_LISTEN_BACKLOG) == 0);
+
+    poll_net_start_accept(rpc_server.network[net_index],listen_fd); 
 }

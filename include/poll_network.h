@@ -54,13 +54,11 @@ typedef struct poll_net *poll_net_t;
 
 /**
  * Initialize poll network interface
- * @param port Port number
  * @param cbs Callback functions
  * @param cb_ctx Context pointer passed to callbacks
- * @param connection Socket connection structure
  * @return Poll network handle or NULL on failure
  */
-poll_net_t poll_net_init(uint16_t port, struct poll_net_callbacks cbs, void* cb_ctx);
+poll_net_t poll_net_init(struct poll_net_callbacks cbs, void* cb_ctx);
 
 /**
  * Start accepting connections (creates accept thread)
@@ -80,9 +78,13 @@ int poll_net_add_fd(poll_net_t net, int fd);
 /**
  * Free poll network resources
  * @param net Poll network handle
- * @param connection_free_cb Callback to free connection resources
- * @param free_ctx Context for free callback
  */
 void poll_net_free(poll_net_t net);
+
+/**
+ * Stop accepting connections (closes socket and joins accept thread)
+ * @param net Poll network handle
+ */
+void poll_net_stop_accept(poll_net_t net);
 
 #endif /* POLL_NETWORK_H */

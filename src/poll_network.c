@@ -100,7 +100,7 @@ static void* poll_thread(void* paramP){
     return NULL;
 }
 
-poll_net_t poll_net_init(uint16_t port, struct poll_net_callbacks cbs, void* cb_ctx){
+poll_net_t poll_net_init(struct poll_net_callbacks cbs, void* cb_ctx){
     poll_net_t net = calloc(1,sizeof(*net)); assert(net);
 
     net->active = 1;
@@ -163,4 +163,13 @@ void poll_net_free(poll_net_t net){
     }
     free(net->fds);
     free(net);
+}
+
+void poll_net_stop_accept(poll_net_t net){
+    if(net->sockfd != -1){
+        shutdown(net->sockfd,SHUT_RDWR);
+        close(net->sockfd);
+    }
+    if(net->accept_thread > 0) pthread_join(net->accept_thread,NULL);
+    net->accept_thread = 0;
 }

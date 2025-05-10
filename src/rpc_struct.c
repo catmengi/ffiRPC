@@ -28,13 +28,12 @@
 
 #include <stdint.h>
 #include <stdatomic.h>
-#include <stdint.h>
 #include <assert.h>
 #include <stdlib.h>
 
 static hashtable* ADF_ht = NULL;
 
-__attribute__((constructor))
+__attribute__((constructor (101)))
 void rpc_struct_ADF_init(void){
     if(ADF_ht == NULL){
         ADF_ht = hashtable_create();
@@ -154,11 +153,23 @@ int rpc_struct_refcount_decrement(void* ptr, size_t decrement_by){
     sprintf(NOdoublefree,"%p",ptr);
     struct rpc_container_element* GC_copy = hashtable_get(ADF_ht,NOdoublefree);
 
-    int ret = 1;
-    if(GC_copy) {GC_copy->refcount -= decrement_by; ret = 0;}
+    if(GC_copy){
+        if(GC_copy->refcount > 0){
+            if(GC_copy->refcount < decrement_by) GC_copy->refcount = 0;
+            else GC_copy->refcount -= decrement_by;
 
-    rpc_struct_cleanup();
-    return ret;
+            if(GC_copy->refcount == 0){
+                char* free_key = ADF_ht->body[hashtable_find_slot(ADF_ht,NOdoublefree)].key;
+                hashtable_remove(ADF_ht,NOdoublefree);
+
+                free(free_key);
+                rpc_container_free(GC_copy);
+                free(GC_copy);
+            }
+            return 0;
+        }
+    }
+    return 1;
 }
 
 
