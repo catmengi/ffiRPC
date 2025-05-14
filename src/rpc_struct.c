@@ -31,6 +31,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#define RPC_STRUCT_SERIALISE_IDENT "ffiRPC v0 format version!"
+
 static hashtable* ADF_ht = NULL;
 
 __attribute__((constructor (101)))
@@ -320,7 +322,7 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
     free(dups);
 
     uint64_t real_len = 0;
-    size_t final_buflen = sizeof(uint64_t);
+    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT);
     for(size_t i = 0; i < serialise_elements_len; i++){
         if(pre_serialise[i].key == NULL) break;
 
@@ -332,7 +334,10 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
     }
 
     char* buf = malloc(final_buflen); assert(buf);
-    char* write_buf = buf;
+
+    memcpy(buf,RPC_STRUCT_SERIALISE_IDENT,sizeof(RPC_STRUCT_SERIALISE_IDENT));
+
+    char* write_buf = buf + sizeof(RPC_STRUCT_SERIALISE_IDENT);
 
     memcpy(write_buf,&real_len,sizeof(uint64_t)); write_buf += sizeof(uint64_t);
 
@@ -363,11 +368,15 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
 rpc_struct_t rpc_struct_unserialise(char* buf){
     assert(buf);
 
-    rpc_struct_t new = rpc_struct_create();
+    if((sizeof(RPC_STRUCT_SERIALISE_IDENT) - 1 != strlen(buf)) || (memcmp(buf,RPC_STRUCT_SERIALISE_IDENT,strlen(buf)) != 0)) //try to not compare outside ident string
+        return NULL;
+
+    buf += strlen(buf);
 
     uint64_t u64_parse_len = 0;
     memcpy(&u64_parse_len,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
 
+    rpc_struct_t new = rpc_struct_create();
     struct rpc_serialise_element serialise;
 
     for(uint64_t i = 0; i < u64_parse_len; i++){
