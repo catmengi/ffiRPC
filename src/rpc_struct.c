@@ -35,8 +35,7 @@
 
 static hashtable* refcount_ht = NULL;
 
-__attribute__((constructor (101)))
-void rpc_struct_ADF_init(void){
+void rpc_struct_init(void){
     if(refcount_ht == NULL){
         refcount_ht = hashtable_create();
     }
@@ -479,7 +478,7 @@ size_t rpc_struct_length(rpc_struct_t rpc_struct){
     assert(rpc_struct);
     return rpc_struct->ht->size;
 }
-char** rpc_struct_getkeys(rpc_struct_t rpc_struct){
+char** rpc_struct_keys(rpc_struct_t rpc_struct){
     assert(rpc_struct);
     char** keys = malloc(sizeof(char*) * rpc_struct->ht->size); assert(keys);
 
@@ -495,6 +494,10 @@ enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
     assert(rpc_struct);
     struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
     return (element == NULL ? 0 : element->type);
+}
+
+int rpc_struct_exist(rpc_struct_t rpc_struct, char* key){
+    return (hashtable_get(rpc_struct->ht,key) == NULL ? 0 : 1);
 }
 
 int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element){
@@ -530,7 +533,7 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
 
 uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
     uint64_t hash = 0;
-    char** keys = rpc_struct_getkeys(rpc_struct);
+    char** keys = rpc_struct_keys(rpc_struct);
     for(size_t i = 0; i < rpc_struct_length(rpc_struct); i++){
         struct rpc_container_element* element = hashtable_get(rpc_struct->ht,keys[i]);
         uint64_t new_hash = hash;

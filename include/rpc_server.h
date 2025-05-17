@@ -35,6 +35,10 @@ enum rpc_server_errors{
     ERR_RPC_FUNCTION_EXIST,
 };
 
+#ifdef RPC_INIT
+void rpc_server_init(); //server init for loader
+#endif
+
 int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len);
 void rpc_server_remove_function(char* function_name);
 void rpc_server_launch_port(uint16_t port);

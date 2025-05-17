@@ -83,9 +83,7 @@ static struct rpc_server{
 
 }rpc_server;
 
-__attribute__((constructor))
 void rpc_server_init(){
-    rpc_init_thread_context();
     rpc_server.execution_pool = thpool_init((int)sysconf(_SC_NPROCESSORS_ONLN));
 
     rpc_server.functions = rpc_struct_create();
@@ -105,21 +103,21 @@ void rpc_server_deinit(){
     thpool_wait(rpc_server.execution_pool);
     thpool_destroy(rpc_server.execution_pool);
 
-    char** FN_keys = rpc_struct_getkeys(rpc_server.functions);
+    char** FN_keys = rpc_struct_keys(rpc_server.functions);
     for(size_t i = 0; i < rpc_struct_length(rpc_server.functions); i++){
         rpc_server_remove_function(FN_keys[i]);
     }
     free(FN_keys);
     rpc_struct_free(rpc_server.functions);
 
-    char** USERS_keys = rpc_struct_getkeys(rpc_server.users);
+    char** USERS_keys = rpc_struct_keys(rpc_server.users);
     for(size_t i = 0; i < rpc_struct_length(rpc_server.users); i++){
         //do something
     }
     free(USERS_keys);
     rpc_struct_free(rpc_server.users);
 
-    char** FD_USERS_keys = rpc_struct_getkeys(rpc_server.fd_users_map);
+    char** FD_USERS_keys = rpc_struct_keys(rpc_server.fd_users_map);
     for(size_t i = 0; i < rpc_struct_length(rpc_server.fd_users_map); i++){
         //do something
     }
@@ -188,7 +186,7 @@ int rpc_server_compare_protos(rpc_struct_t arguments, enum rpc_types* prototype,
 
     if(rpc_struct_length(arguments) < prototype_len) goto exit; //variadic functions quirk
 
-    keys = rpc_struct_getkeys(arguments);
+    keys = rpc_struct_keys(arguments);
     for(int i = 0; i < prototype_len; i++){
         if(rpc_struct_typeof(arguments,keys[i]) != prototype[i]) goto exit;
     }
@@ -203,7 +201,7 @@ int rpc_server_is_variadic(rpc_struct_t arguments, int prototype_len){
 }
 int rpc_server_is_variadic_allowed(rpc_struct_t arguments, int variadic_start){
     int is_allowed = 1;
-    char** keys = rpc_struct_getkeys(arguments);
+    char** keys = rpc_struct_keys(arguments);
     for(int i = 0; i < rpc_struct_length(arguments); i++){
         enum rpc_types type = rpc_struct_typeof(arguments,keys[i]);
         if(type < ctype_to_rpc(int)){

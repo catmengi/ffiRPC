@@ -1,9 +1,12 @@
 #include "../include/rpc_struct.h"
 #include "../include/rpc_server.h"
+#include "../include/rpc_init.h"
 
 #include <assert.h>
 #include <unistd.h>
 int main(){
+    rpc_init();
+
     rpc_struct_t rstruct = rpc_struct_create();
     rpc_struct_set(rstruct, "dbg",0.1488);
 

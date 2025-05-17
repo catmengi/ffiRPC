@@ -79,6 +79,10 @@ enum rpc_types{
  */
 typedef struct _rpc_struct *rpc_struct_t;
 
+#ifdef RPC_INIT
+void rpc_struct_init(void);
+#endif
+
 /**
  * @brief Creates a new RPC structure
  * @return Pointer to newly created RPC structure
@@ -150,7 +154,15 @@ size_t rpc_struct_length(rpc_struct_t rpc_struct); //return length of rpc_struct
  * @param rpc_struct RPC structure
  * @return Array of string pointers to keys
  */
-char** rpc_struct_getkeys(rpc_struct_t rpc_struct); //return array of char* keys to elements;
+char** rpc_struct_keys(rpc_struct_t rpc_struct); //return array of char* keys to elements;
+
+/**
+ * @brief Check is element exist
+ * @param rpc_struct RPC structure
+ * @param key Element key
+ * @return 0 is doesnt exist, else 1
+ */
+int rpc_struct_exist(rpc_struct_t rpc_struct, char* key);
 
 /**
  * @brief Gets the type of an element by key
@@ -243,7 +255,7 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
 #define rpc_struct_set(rpc_struct, key, input)({\
     int __ret = 1;\
     assert(key != NULL);\
-    if(rpc_struct_typeof(rpc_struct, key) == 0){\
+    if(rpc_struct_exist(rpc_struct, key) == 0){\
         struct rpc_container_element* __element = calloc(1,sizeof(*__element)); assert(__element);\
         c_to_rpc(__element,input);\
         __ret = rpc_struct_set_internal(rpc_struct,key,__element);\
