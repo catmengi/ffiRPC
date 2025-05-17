@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #include "rpc_struct.h"
 
@@ -14,20 +15,22 @@ struct rpc_container_element{
     atomic_size_t refcount;
     atomic_size_t copy_count; //used to properly increment refcount of copy
 };
+extern size_t rpctype_sizes[RPC_duplicate];
+
+#include "rpc_struct.h"
 
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
 #define c_to_rpc(element,var)({\
     element->type = ctype_to_rpc(typeof(var));\
+    char __tmp[(rpctype_sizes[element->type] > 0 ? rpctype_sizes[element->type] : sizeof(void*))]; *(typeof(var)*)__tmp = var;\
     if(rpc_is_pointer(element->type)){\
         element->length = 0;\
-        element->data = (void*)var;\
+        element->data = *(void**)__tmp;\
     } else {\
-        typeof(var) cpy_var = var;\
-        element->data = malloc(sizeof(cpy_var));\
+        element->data = malloc(rpctype_sizes[element->type]);\
         assert(element->data);\
-        element->length = sizeof(cpy_var);\
-        memcpy(element->data,(void*)&cpy_var,element->length);\
+        element->length = rpctype_sizes[element->type];\
+        memcpy(element->data,__tmp,element->length);\
     }})
 
-extern size_t rpctype_sizes[RPC_duplicate];

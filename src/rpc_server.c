@@ -268,7 +268,8 @@ int rpc_server_call(rpc_function_t function, rpc_struct_t arguments, rpc_struct_
             sc_queue_add_last(&updated_arguments,arg_info);
         }
     }
-    rpc_thread_context_set(function->function_context);
+    rpc_struct_t context = rpc_thread_context_get(); //get thread execution context
+    rpc_struct_set(context, "function_context", function->function_context);
 
     void* return_is = NULL;
     uint64_t ffi_return = 0;

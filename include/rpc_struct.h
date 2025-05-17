@@ -34,7 +34,6 @@
 
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
-
 /**
  * @note Documentation Notice
  * 
@@ -70,7 +69,6 @@ enum rpc_types{
     RPC_unknown,
     RPC_duplicate,
 };
-
 #include "rpc_struct_internal.h"
 
 /**
@@ -246,7 +244,7 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
     int __ret = 1;\
     assert(key != NULL);\
     if(rpc_struct_typeof(rpc_struct, key) == 0){\
-        struct rpc_container_element* __element = malloc(sizeof(*__element)); assert(__element);\
+        struct rpc_container_element* __element = calloc(1,sizeof(*__element)); assert(__element);\
         c_to_rpc(__element,input);\
         __ret = rpc_struct_set_internal(rpc_struct,key,__element);\
     }\
@@ -268,7 +266,7 @@ hashtable* rpc_struct_HT(rpc_struct_t rpc_struct);
  *   assert(output == input);
  */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(copy));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -282,5 +280,5 @@ if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc
  * @warning May cause undefined behavior if types don't match
  */
 #define rpc_struct_get_unsafe(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = hashtable_get(rpc_struct_HT(rpc_struct),key);\
-if(element != NULL){if(rpc_is_pointer(element->type)){rpc_cast_value(output,(typeof(output))element->data);} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+if(element != NULL){if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(copy));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
