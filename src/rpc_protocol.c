@@ -26,6 +26,9 @@
 #include "../include/rpc_server.h" //for ARRAY_SIZE
 
 #include <assert.h>
+#include <stdint.h>
+
+#define RPC_PROTOCOL_IDENT "ffiRPC NET v0 beta"
 
 static const char* rpc_protocol_str[] = {
     "RPC_DISCONNECT", "RPC_PING",
@@ -47,4 +50,47 @@ enum rpc_protocol rpc_protocol_str_enum(char* req){
 const char* rpc_protocol_enum_str(enum rpc_protocol operand){
     assert(operand < ARRAY_SIZE(rpc_protocol_str));
     return rpc_protocol_str[operand];
+}
+
+rpc_struct_t rpc_msg_recv(int fd,char encrypt_key[RPC_ENCRYTION_KEY_SIZE]){
+    char* recv_buf = NULL;
+    void* ret = NULL;
+
+    char ident[sizeof(RPC_PROTOCOL_IDENT) + sizeof(uint64_t)] = {0};
+
+    if(recv(fd,ident,sizeof(ident),MSG_NOSIGNAL) != sizeof(ident)) goto exit;
+    if(strcmp(ident,RPC_PROTOCOL_IDENT) != 0) goto exit;
+
+    uint64_t recv_len = 0;
+    memcpy(&recv_len,&ident[sizeof(RPC_PROTOCOL_IDENT)],sizeof(uint64_t));
+
+    recv_buf = malloc(recv_len); if(recv_buf == NULL) goto exit; //dont using assert() here because we dont want to crash because of random network scanner
+    if(recv(fd,recv_buf,(size_t)recv_len,MSG_NOSIGNAL) != recv_len) goto exit;
+
+    ret = rpc_struct_unserialise(recv_buf);
+
+exit:
+    free(recv_buf);
+    return ret;
+}
+
+int rpc_msg_send(int fd, rpc_struct_t rpc_struct, char uncrypt_key[RPC_ENCRYTION_KEY_SIZE]){
+    int ret = 1;
+
+    size_t send_len = 0;
+    char* send_buf = rpc_struct_serialise(rpc_struct,&send_len);
+
+    char ident[sizeof(RPC_PROTOCOL_IDENT) + sizeof(uint64_t)] = {0};
+    memcpy(RPC_PROTOCOL_IDENT,ident,sizeof(RPC_PROTOCOL_IDENT));
+
+    uint64_t u64_sndlen = send_len;
+    memcpy(&ident[sizeof(RPC_PROTOCOL_IDENT)],&u64_sndlen,sizeof(uint64_t));
+
+    if(send(fd,ident,sizeof(ident),MSG_NOSIGNAL) != sizeof(ident)) goto exit;
+    if(send(fd,send_buf,send_len,MSG_NOSIGNAL) != send_len) goto exit;
+    ret = 0;
+
+exit:
+    free(send_buf);
+    return ret;
 }

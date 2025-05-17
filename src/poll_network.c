@@ -37,6 +37,8 @@
 
 #include "../include/poll_network.h"
 
+#define TIMEOUT 5
+
 struct poll_net{
     int active;
 
@@ -62,6 +64,12 @@ static void* accept_thread(void* paramP){
             if(net->callbacks.accept_error_cb && net->active == 1) net->callbacks.accept_error_cb(net->callback_ctx);
             return NULL;
         }
+        struct timeval timeout;
+        timeout.tv_sec = TIMEOUT;
+        timeout.tv_usec = 0;
+
+        assert(setsockopt(netfd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) == 0);
+        assert(setsockopt(netfd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout)) == 0);
 
         poll_net_add_fd(net,netfd);
 

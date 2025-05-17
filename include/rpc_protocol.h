@@ -20,7 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "../include/rpc_struct.h"
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#define RPC_ENCRYTION_KEY_SIZE 0
 
 enum rpc_protocol{
     //operands from client to server
@@ -44,3 +51,6 @@ enum rpc_protocol{
 
 enum rpc_protocol rpc_protocol_str_enum(char* req);
 const char* rpc_protocol_enum_str(enum rpc_protocol operand);
+
+rpc_struct_t rpc_msg_recv(int fd,char encrypt_key[RPC_ENCRYTION_KEY_SIZE]);
+int rpc_msg_send(int fd, rpc_struct_t rpc_struct, char uncrypt_key[RPC_ENCRYTION_KEY_SIZE]);

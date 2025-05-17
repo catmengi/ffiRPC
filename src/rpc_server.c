@@ -25,6 +25,7 @@
 #include "../include/rpc_server.h"
 #include "../include/rpc_thread_context.h"
 #include "../include/poll_network.h"
+#include "../include/rpc_protocol.h"
 #include "../include/sc_queue.h"
 #include "../include/C-Thread-Pool/thpool.h"
 
@@ -33,11 +34,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 
 #define RPC_SERVER_ALLOC_MIN_PORTS 16
 #define RPC_SERVER_LISTEN_BACKLOG 1024
@@ -52,6 +48,11 @@ ffi_type* rpctype_to_libffi[RPC_duplicate] = {   //convert table used to convert
 
     &ffi_type_pointer, &ffi_type_pointer,
     &ffi_type_pointer, &ffi_type_pointer
+};
+
+enum rpc_server_state{
+    SERVER_BEFORE_AUTH, //server before auth mode, only RPC_AUTH, RPC_DISCONNNECT, RPC_PING should be allowed
+    SERVER_NORMAL //Set's server processing mode to allow all commands
 };
 
 typedef struct rpc_function{
@@ -85,8 +86,7 @@ static struct rpc_server{
 __attribute__((constructor))
 void rpc_server_init(){
     rpc_init_thread_context();
-    int cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
-    rpc_server.execution_pool = thpool_init(cpu_count);
+    rpc_server.execution_pool = thpool_init((int)sysconf(_SC_NPROCESSORS_ONLN));
 
     rpc_server.functions = rpc_struct_create();
     rpc_server.users = rpc_struct_create();
