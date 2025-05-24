@@ -95,7 +95,7 @@ void rpc_server_init(){
     rpc_server.network = malloc(rpc_server.network_size * sizeof(*rpc_server.network)); assert(rpc_server.network);
 }
 
-__attribute((destructor))
+__attribute__((destructor))
 void rpc_server_deinit(){
     for(size_t i = 0; i < rpc_server.network_index; i++){
         poll_net_stop_accept(rpc_server.network[i]);
@@ -127,8 +127,6 @@ void rpc_server_deinit(){
         poll_net_free(rpc_server.network[i]);
     }
     free(rpc_server.network);
-
-    rpc_deinit_thread_context();
     memset(&rpc_server,0,sizeof(rpc_server));
 }
 

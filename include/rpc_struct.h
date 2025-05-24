@@ -79,10 +79,6 @@ enum rpc_types{
  */
 typedef struct _rpc_struct *rpc_struct_t;
 
-#ifdef RPC_INIT
-void rpc_struct_init(void);
-#endif
-
 /**
  * @brief Creates a new RPC structure
  * @return Pointer to newly created RPC structure
@@ -103,22 +99,6 @@ void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it'
  * @note Using the removed element causes undefined behavior
  */
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with key "key" from rpc_struct and free it.
-                                                                    //using removed element is undefined behavior because free will be done on next rpc_struct_set or rpc_struct_free or manually by rpc_struct_cleanup
-/**
- * @brief Increment reference counter for pointer type ptr
- * @param ptr Pointer that isnt RPC_string or RPC_unknown and have been set to any rpc_struct_t in current proccess
- * @param increment_by increment reference counter by
- * @return 0 if item is valid, 1 item invalid or doesnt exist!
- */
-int rpc_struct_refcount_increment(void* ptr, size_t increment_by);
-
-/**
- * @brief decrement reference counter for pointer type ptr
- * @param ptr Pointer that isnt RPC_string or RPC_unknown and have been set to any rpc_struct_t in current proccess
- * @param decrement_by decrement reference counter by
- * @return 0 if item is valid, 1 item invalid or doesnt exist!
- */
-int rpc_struct_refcount_decrement(void* ptr, size_t decrement_by);
 
 /**
  * @brief Serializes RPC structure to binary format
@@ -185,17 +165,6 @@ uint64_t rpc_struct_hash(rpc_struct_t rpc_struct); //return a hash of rpc_struct
  * @return Non-zero for pointer types, 0 otherwise
  */
 int rpc_is_pointer(enum rpc_types type);
-
-/**
- * @brief Frees a container element SHOULD NOT BE CALLED MANUALLY.
- * @param element Element to free
- */
-void rpc_container_free(struct rpc_container_element* element);
-
-/**
- * @brief Cleans up pointer elements that was removed from rpc_struct.
- */
-void rpc_struct_cleanup();
 
 /**
  * @brief Internal function for setting an element in structure, may be used to overcome type system, THINK BEFORE USING!

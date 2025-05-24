@@ -2,6 +2,8 @@
  * Hashtable implementation
  * (c) 2011-2019 @marekweb
  *
+ * Changes to make it more suitable for ffiRPC project by @catmengi 2024-2025
+ *
  * Uses dynamic addressing with linear probing.
  */
 
@@ -36,16 +38,42 @@ unsigned long hashtable_hash(char* str)
  */
 
 int hashtable_strcmp_wrap(char* s1, char* s2){
-	if(s1 == (char*)0xDEAD|| s2 == (char*)0xDEAD) return 1;
+	if((s1 == NULL || s1 == (void*)0xDEAD) || (s2 == NULL || s2 == (void*)0xDEAD)) return 1;
 	return strcmp(s1,s2);
 }
-unsigned int hashtable_find_slot(hashtable* t, char* key)
-{
-	int index = hashtable_hash(key) % t->capacity;
-	while (t->body[index].key != NULL &&  t->body[index].key != (char*)0xDEAD && hashtable_strcmp_wrap(t->body[index].key,key) != 0) {
+unsigned int hashtable_find_slot(hashtable* t, char* key) {
+	unsigned int index = hashtable_hash(key) % t->capacity;
+	unsigned int start_index = index;
+	unsigned int first_tombstone = t->capacity; // invalid
+
+	while (1) {
+		// Check if the current slot is empty (NULL)
+		if (t->body[index].key == NULL) {
+			// If we are returning an empty slot, check for tombstones
+			return (first_tombstone != t->capacity) ? first_tombstone : index;
+		}
+
+		// Check if the key matches
+		if (hashtable_strcmp_wrap(t->body[index].key, key) == 0) {
+			return index; // Key found
+		}
+
+		// Check for tombstone
+		if (t->body[index].key == (void*)0xdead && first_tombstone == t->capacity) {
+			first_tombstone = index; // Remember the first tombstone found
+		}
+
+		// Move to the next index
 		index = (index + 1) % t->capacity;
+
+		// Check if we've looped back to the start
+		if (index == start_index) {
+			break; // Full cycle
+		}
 	}
-	return index;
+
+	// If we reach here, it means the key was not found, return the first tombstone or the current index
+	return (first_tombstone != t->capacity) ? first_tombstone : index;
 }
 
 /**
@@ -165,6 +193,34 @@ void hashtable_destroy(hashtable* t)
 {
 	free(t->body);
 	free(t);
+}
+
+/**
+ * Get keys from hashtable. This does not copy the keys
+*/
+char** hashtable_get_keys(hashtable* t){
+	char** keys = malloc(t->size * sizeof(char*)); assert(keys);
+	unsigned int k = 0;
+
+	for(unsigned int i = 0; i < t->capacity; i++){
+		if(t->body[i].key != NULL && t->body[i].key != (char*)0xDEAD){
+			keys[k++] = t->body[i].key;
+		}
+	}
+	return keys;
+
+}
+
+void** hashtable_get_values(hashtable* t){
+	void** values = malloc(t->size * sizeof(void*)); assert(values);
+
+	unsigned int k = 0;
+	for(unsigned int i = 0; i < t->capacity; i++){
+		if(t->body[i].key != NULL && t->body[i].key != (char*)0xDEAD){
+			values[k++] = t->body[i].value;
+		}
+	}
+	return values;
 }
 
 uint64_t murmur(uint8_t* inbuf,uint32_t keylen){

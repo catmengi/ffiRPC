@@ -15,6 +15,8 @@ void hashtable_set(hashtable *t,char *key,void *value);
 void *hashtable_get(hashtable *t,char *key);
 unsigned int hashtable_find_slot(hashtable *t,char *key);
 unsigned long hashtable_hash(char *str);
+char** hashtable_get_keys(hashtable* t);
+void** hashtable_get_values(hashtable* t);
 struct hashtable {
 	unsigned int size;
 	unsigned int capacity;
