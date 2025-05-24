@@ -11,9 +11,6 @@ struct rpc_container_element{
     void* data;
     size_t length;
     enum rpc_types type;
-
-    atomic_size_t refcount;
-    atomic_size_t copy_count; //used to properly increment refcount of copy
 };
 extern size_t rpctype_sizes[RPC_duplicate];
 
