@@ -29,10 +29,7 @@ prec_t prec_get(void* ptr){
 }
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
-    if(ptracker == NULL)
-        ptracker = hashtable_create();
-
-    if(prec_get(ptr) != NULL) prec_get(ptr);
+    ptracker == NULL ? ptracker = hashtable_create() : assert(prec_get(ptr) == NULL); //check that element wasnt set before should only be when ptracker was already inited
 
     prec_t new = malloc(sizeof(*new)); assert(new);
     new->ptr = ptr;
@@ -52,13 +49,11 @@ void prec_delete(prec_t prec){
     if(prec){
         char acc[sizeof(void*) * 4];
         sprintf(acc,"%p",prec->ptr);
-
         char* kfree = ptracker->body[hashtable_find_slot(ptracker,acc)].key;
         hashtable_remove(ptracker,acc);
         free(kfree);
 
         if(prec->cbs.zero) prec->cbs.zero(prec,NULL);
-
         free(prec);
     }
 }
@@ -94,7 +89,8 @@ void* prec_ptr(prec_t prec){
 
 prec_t* prec_get_all(size_t* size_out){
     assert(size_out);
-
-    *size_out = ptracker->size;
-    return (prec_t*)hashtable_get_values(ptracker);
+    if(ptracker){
+        *size_out = ptracker->size;
+        return (prec_t*)hashtable_get_values(ptracker);
+    }else {*size_out = 0; return NULL;}
 }

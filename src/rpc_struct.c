@@ -53,7 +53,7 @@ typedef struct{
     char* name;
 }prec_rpc_udata;
 
-
+static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
 
 rpc_struct_t rpc_struct_create(void){
     rpc_struct_t rpc_struct = (rpc_struct_t)malloc(sizeof(*rpc_struct));
@@ -63,12 +63,46 @@ rpc_struct_t rpc_struct_create(void){
 
     return rpc_struct;
 }
-
-hashtable* rpc_struct_HT(rpc_struct_t rpc_struct){
-    assert(rpc_struct);
-    return rpc_struct->ht;
-}
 //========================
+
+static void rpc_struct_onzero_cb(prec_t prec, void* udata){
+    hashtable* ht = prec_context_get(prec);
+    if(ht){
+        char** keys = hashtable_get_keys(ht);
+        size_t length = ht->size;
+        for(size_t i = 0; i < length; i++){
+            rpc_struct_remove(hashtable_get(ht,keys[i]),keys[i]);
+        }
+        for(size_t i = 0; i < length; i++) free(keys[i]);
+        free(keys);
+        hashtable_destroy(ht);
+
+        rpc_struct_free_internal(prec_ptr(prec));
+    }
+}
+static void rpc_struct_increment_cb(prec_t prec, void* udata){
+    if(udata){
+        prec_rpc_udata* udat = udata;
+        hashtable* ht = (prec_context_get(prec) != NULL ? prec_context_get(prec) : hashtable_create());
+        if(prec_context_get(prec) == NULL) prec_context_set(prec,ht);
+
+        hashtable_set(ht,strdup(udat->name),udat->origin);
+    }
+}
+static void rpc_struct_decrement_cb(prec_t prec, void* udata){
+    hashtable* ht = prec_context_get(prec);
+    if(ht){
+        char* kfree = ht->body[hashtable_find_slot(ht,(char*)udata)].key;
+        hashtable_remove(ht,kfree);
+        free(kfree);
+    }
+}
+
+static struct prec_callbacks rpc_struct_default_prec_cbs = {
+    .zero = rpc_struct_onzero_cb,
+    .increment = rpc_struct_increment_cb,
+    .decrement = rpc_struct_decrement_cb,
+};
 
 static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
     if(rpc_struct){
@@ -90,45 +124,6 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
         else rpc_struct_free_internal(rpc_struct);
     }
 }
-
-static void rpc_struct_zero_cb(prec_t prec, void* udata){
-    hashtable* ht = prec_context_get(prec);
-    if(ht){
-        char** keys = hashtable_get_keys(ht);
-        size_t length = ht->size;
-        for(size_t i = 0; i < length; i++){
-            rpc_struct_remove(hashtable_get(ht,keys[i]),keys[i]);
-        }
-        for(size_t i = 0; i < length; i++) free(keys[i]);
-        free(keys);
-        hashtable_destroy(ht);
-
-        rpc_struct_free_internal(prec_ptr(prec));
-    }
-}
-static void rpc_struct_inc_cb(prec_t prec, void* udata){
-    if(udata){
-        hashtable* ht = (prec_context_get(prec) != NULL ? prec_context_get(prec) : hashtable_create());
-        if(prec_context_get(prec) == NULL) prec_context_set(prec,ht);
-
-        prec_rpc_udata* udat = udata;
-        hashtable_set(ht,strdup(udat->name),udat->origin);
-    }
-}
-static void rpc_struct_dec_cb(prec_t prec, void* udata){
-    hashtable* ht = prec_context_get(prec);
-    if(ht){
-        char* kfree = ht->body[hashtable_find_slot(ht,(char*)udata)].key;
-        hashtable_remove(ht,kfree);
-        free(kfree);
-    }
-}
-
-static struct prec_callbacks rpc_struct_default_prec_cbs = {
-    .zero = rpc_struct_zero_cb,
-    .increment = rpc_struct_inc_cb,
-    .decrement = rpc_struct_dec_cb,
-};
 
 int rpc_is_pointer(enum rpc_types type){ //return 1 if rpc_type is pointer, 0 if not
     int ret = 0;
@@ -481,6 +476,10 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
         return 0;
     }
     return 1;
+}
+
+struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
+    return hashtable_get(rpc_struct->ht,key);
 }
 
 uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
