@@ -248,7 +248,7 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
  *   assert(output == input);
  */
 #define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);\
-if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(copy));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(typeof(output)));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -262,5 +262,5 @@ if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc
  * @warning May cause undefined behavior if types don't match
  */
 #define rpc_struct_get_unsafe(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);\
-if(element != NULL){if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(copy));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+if(element != NULL){if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(typeof(output)));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
 

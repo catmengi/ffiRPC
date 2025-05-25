@@ -26,6 +26,7 @@
 #include "../include/rpc_sizedbuf.h"
 #include "../include/hashtable.h"
 #include "../include/ptracker.h"
+#include "../include/sc_queue.h"
 
 #include <stdint.h>
 #include <stdatomic.h>
@@ -53,6 +54,15 @@ typedef struct{
     char* name;
 }prec_rpc_udata;
 
+#define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
+typedef struct{
+    rpc_struct_t* origins;
+    int o_index;
+    int o_size;
+
+    struct sc_queue_int empty_origins;
+}rpc_struct_prec_ctx;
+
 static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
 
 rpc_struct_t rpc_struct_create(void){
@@ -71,12 +81,19 @@ static void rpc_struct_onzero_cb(prec_t prec, void* udata){
         char** keys = hashtable_get_keys(ht);
         size_t length = ht->size;
         for(size_t i = 0; i < length; i++){
-            rpc_struct_remove(hashtable_get(ht,keys[i]),keys[i]);
+            rpc_struct_prec_ctx* ctx = hashtable_get(ht,keys[i]);
+            if(ctx){
+                for(int j = 0; j < ctx->o_index; j++){
+                    rpc_struct_remove(ctx->origins[j],keys[i]);
+                }
+                sc_queue_term(&ctx->empty_origins);
+                free(ctx->origins);
+                free(ctx);
+            }
         }
         for(size_t i = 0; i < length; i++) free(keys[i]);
         free(keys);
         hashtable_destroy(ht);
-
         rpc_struct_free_internal(prec_ptr(prec));
     }
 }
@@ -86,15 +103,44 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         hashtable* ht = (prec_context_get(prec) != NULL ? prec_context_get(prec) : hashtable_create());
         if(prec_context_get(prec) == NULL) prec_context_set(prec,ht);
 
-        hashtable_set(ht,strdup(udat->name),udat->origin);
+        rpc_struct_prec_ctx* ctx = hashtable_get(ht,udat->name);
+        if(ctx == NULL){
+            ctx = malloc(sizeof(*ctx)); assert(ctx);
+
+            ctx->o_index = 0;
+            ctx->o_size = RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE;
+            ctx->origins = malloc(sizeof(*ctx->origins) * ctx->o_size); assert(ctx->origins);
+            sc_queue_init(&ctx->empty_origins);
+            hashtable_set(ht,strdup(udat->name),ctx);
+        }
+        int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
+        if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
+        ctx->origins[index] = udat->origin;
     }
 }
 static void rpc_struct_decrement_cb(prec_t prec, void* udata){
     hashtable* ht = prec_context_get(prec);
     if(ht){
-        char* kfree = ht->body[hashtable_find_slot(ht,(char*)udata)].key;
-        hashtable_remove(ht,kfree);
-        free(kfree);
+        prec_rpc_udata* udat = udata;
+        rpc_struct_prec_ctx* ctx = hashtable_get(ht,udat->name);
+        if(ctx){
+            for(int i = 0; i < ctx->o_index; i++){
+                if(ctx->origins[i] == udat->origin){
+                    ctx->origins[i] = NULL;
+                    sc_queue_add_last(&ctx->empty_origins,i);
+                    if(i == ctx->o_index - 1) ctx->o_index--;
+                }
+            }
+            if(ctx->o_index == 0){
+                char* kfree = ht->body[hashtable_find_slot(ht,udat->name)].key;
+                hashtable_remove(ht,kfree);
+                free(kfree);
+
+                sc_queue_term(&ctx->empty_origins);
+                free(ctx->origins);
+                free(ctx);
+            }
+        }
     }
 }
 
@@ -153,7 +199,11 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
         if(element){
             log_call++;
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-                prec_decrement(prec_get(element->data),key);
+                prec_rpc_udata udat = {
+                    .name = key,
+                    .origin = rpc_struct,
+                };
+                prec_decrement(prec_get(element->data),&udat);
             } else if(element->type == RPC_string || !rpc_is_pointer(element->type)) rpc_container_free(element);
 
             char* kfree = rpc_struct->ht->body[hashtable_find_slot(rpc_struct->ht,key)].key;

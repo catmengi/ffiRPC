@@ -21,9 +21,10 @@ int main(){
     assert(rpc_struct_exist(cont,"check") == 0);
 
     rpc_struct_t ref2 = rpc_struct_create();
+    rpc_struct_set(ref2,"1",52488);
     rpc_struct_set(cont,"check2",ref2);
     for(size_t i = 0; i < pow(2,16); i++){
-        printf("%zu\n",i);
+        // printf("%zu\n",i);
         char k[64] = {0};
         sprintf(k,"%zu",i);
 
@@ -38,7 +39,7 @@ int main(){
 
     rpc_struct_t c = NULL;
     for(size_t i = 0; i < pow(2,16); i++){
-        printf("%zu\n",i);
+        // printf("%zu\n",i);
         char k[64] = {0};
         sprintf(k,"%zu",i);
 
@@ -53,10 +54,14 @@ int main(){
     }
     rpc_struct_free(unser);
 
+    rpc_struct_t r = rpc_struct_copy(ref2);
     rpc_struct_free(ref2);
     assert(rpc_struct_exist(cont,"check2") == 0);
 
     rpc_struct_free(cont);
 
-
+    int a = -1;
+    rpc_struct_get(r,"1",a);
+    assert(a == 52488);
+    rpc_struct_free(r);
 }
