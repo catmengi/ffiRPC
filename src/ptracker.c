@@ -53,7 +53,7 @@ void prec_delete(prec_t prec){
         hashtable_remove(ptracker,acc);
         free(kfree);
 
-        if(prec->cbs.zero) prec->cbs.zero(prec,NULL);
+        if(prec->cbs.zero) prec->cbs.zero(prec);
         free(prec);
     }
 }

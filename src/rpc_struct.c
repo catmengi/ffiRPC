@@ -75,7 +75,7 @@ rpc_struct_t rpc_struct_create(void){
 }
 //========================
 
-static void rpc_struct_onzero_cb(prec_t prec, void* udata){
+static void rpc_struct_onzero_cb(prec_t prec){
     hashtable* ht = prec_context_get(prec);
     if(ht){
         char** keys = hashtable_get_keys(ht);
@@ -119,26 +119,28 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
     }
 }
 static void rpc_struct_decrement_cb(prec_t prec, void* udata){
-    hashtable* ht = prec_context_get(prec);
-    if(ht){
-        prec_rpc_udata* udat = udata;
-        rpc_struct_prec_ctx* ctx = hashtable_get(ht,udat->name);
-        if(ctx){
-            for(int i = 0; i < ctx->o_index; i++){
-                if(ctx->origins[i] == udat->origin){
-                    ctx->origins[i] = NULL;
-                    sc_queue_add_last(&ctx->empty_origins,i);
-                    if(i == ctx->o_index - 1) ctx->o_index--;
+    if(udata){
+        hashtable* ht = prec_context_get(prec);
+        if(ht){
+            prec_rpc_udata* udat = udata;
+            rpc_struct_prec_ctx* ctx = hashtable_get(ht,udat->name);
+            if(ctx){
+                for(int i = 0; i < ctx->o_index; i++){
+                    if(ctx->origins[i] == udat->origin){
+                        ctx->origins[i] = NULL;
+                        sc_queue_add_last(&ctx->empty_origins,i);
+                        if(i == ctx->o_index - 1) ctx->o_index--;
+                    }
                 }
-            }
-            if(ctx->o_index == 0){
-                char* kfree = ht->body[hashtable_find_slot(ht,udat->name)].key;
-                hashtable_remove(ht,kfree);
-                free(kfree);
+                if(ctx->o_index == 0){
+                    char* kfree = ht->body[hashtable_find_slot(ht,udat->name)].key;
+                    hashtable_remove(ht,kfree);
+                    free(kfree);
 
-                sc_queue_term(&ctx->empty_origins);
-                free(ctx->origins);
-                free(ctx);
+                    sc_queue_term(&ctx->empty_origins);
+                    free(ctx->origins);
+                    free(ctx);
+                }
             }
         }
     }
