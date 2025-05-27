@@ -128,8 +128,9 @@ static void rpc_struct_decrement_cb(prec_t prec, void* udata){
                 for(int i = 0; i < ctx->o_index; i++){
                     if(ctx->origins[i] == udat->origin){
                         ctx->origins[i] = NULL;
-                        sc_queue_add_last(&ctx->empty_origins,i);
+
                         if(i == ctx->o_index - 1) ctx->o_index--;
+                        else sc_queue_add_last(&ctx->empty_origins,i);
                     }
                 }
                 if(ctx->o_index == 0){
