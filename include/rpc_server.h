@@ -26,8 +26,6 @@
 #include "rpc_thread_context.h"
 #include "rpc_struct.h"
 
-#define ARRAY_SIZE(x) ({sizeof((x)) / sizeof((x)[0]);})
-
 enum rpc_server_errors{
     ERR_RPC_OK,
     ERR_RPC_PROTOTYPE_DIFFERENT,

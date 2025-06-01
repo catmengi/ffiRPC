@@ -3,8 +3,15 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <time.h>
+
+#define NOT_IMPLEMENTED
 
 struct _rpc_function{
+    NOT_IMPLEMENTED rpc_struct_t rpc_info;
+                           //rpc_info is NULL when it is used by server to call "original" function. NON NULL when this function was received through RPC client, rpc_info will contain:
+                           //ffi closures, CIFs, pointer to client. You will be able to call fn_ptr just like any other function pointer through cast, closure will handle rest
+
     rpc_sizedbuf_t prototype_buf;
     enum rpc_types return_type;
     void* fn_ptr;
@@ -54,6 +61,7 @@ rpc_function_t rpc_function_unserialise(char* buf){
     }
     assert(rpc_struct_get(unser, "return_type", return_type) == 0);
 
+    // BUILD CALLABLE PROXY FUNCTION VIA LIBFFI!
     ret = rpc_function_create_internal(NULL,return_type,prototype_buf);
     rpc_struct_free(unser);
     return ret;

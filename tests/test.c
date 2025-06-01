@@ -14,4 +14,12 @@
 
 int main(){
     rpc_init();
+
+    rpc_struct_t s = rpc_struct_create();
+    rpc_struct_set(s,"1",123);
+
+    double o;
+    assert(rpc_struct_get(s,"1",o) != 0);
+
+    rpc_struct_free(s);
 }

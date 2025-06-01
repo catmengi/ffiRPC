@@ -107,7 +107,11 @@ static int is_variadic_allowed(rpc_struct_t cl_args, int sproto_len){
     return 1;
 }
 
-static int rpc_server_call_object(rpc_struct_t obj, rpc_function_t fn, rpc_struct_t params, rpc_struct_t output){
+//loads object into context and calls function!
+static int rpc_server_call_object(rpc_struct_t obj, char* fn_name, rpc_struct_t params, rpc_struct_t output){
+    rpc_function_t fn = NULL;
+    if(rpc_struct_get(obj, fn_name, fn)) return ERR_RPC_DOESNT_EXIST;
+
     int nonvar_proto_len = 0;
     if(!proto_equals(rpc_function_get_prototype(fn,&nonvar_proto_len),nonvar_proto_len,params)) return ERR_RPC_PROTOTYPE_DIFFERENT;
     if(!is_variadic_allowed(params,nonvar_proto_len)) return ERR_RPC_VARIADIC_NOT_ALLOWED;
@@ -192,7 +196,9 @@ static int rpc_server_call_object(rpc_struct_t obj, rpc_function_t fn, rpc_struc
             case RPC_string:
                 if(murmur(arg_info->raw_ptr,strlen(arg_info->raw_ptr)) != arg_info->hash) do_set = 1;
                 break;
-            default: break;
+            default:
+                do_set = 1;  //looks like unhasheble type like RPC_function
+                break;
         }
 
         if(do_set == 1){

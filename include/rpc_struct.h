@@ -208,7 +208,6 @@ void rpc_struct_decrement_refcount(void* ptr);
                                     uint32_t             : RPC_uint32,      \
                                     int64_t              : RPC_int64,       \
                                     uint64_t             : RPC_uint64,      \
-                                    float                : RPC_double,      \
                                     double               : RPC_double,      \
                                     char*                : RPC_string,      \
                                     rpc_struct_t         : RPC_struct,      \
@@ -232,13 +231,13 @@ void rpc_struct_decrement_refcount(void* ptr);
  *
  * @example rpc_struct_set(rpc_struct,"check_int",(uint64_t)12345678);
  */
-#define rpc_struct_set(rpc_struct, key, input)({\
+#define rpc_struct_set(__rpc_struct, __key, __input)({\
     int __ret = 1;\
-    assert(key != NULL);\
-    if(rpc_struct_exist(rpc_struct, key) == 0){\
+    assert(__key != NULL);\
+    if(rpc_struct_exist(__rpc_struct, __key) == 0){\
         struct rpc_container_element* __element = calloc(1,sizeof(*__element)); assert(__element);\
-        c_to_rpc(__element,input);\
-        __ret = rpc_struct_set_internal(rpc_struct,key,__element);\
+        c_to_rpc(__element,__input);\
+        __ret = rpc_struct_set_internal(__rpc_struct,__key,__element);\
     }\
     (int)(__ret);})
 
@@ -258,7 +257,7 @@ void rpc_struct_decrement_refcount(void* ptr);
  *   assert(output == input);
  */
 #define rpc_struct_get(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){assert(__element->type == ctype_to_rpc(typeof(__output)));if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__output)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
+if(__element != NULL){if(__element->type != ctype_to_rpc(typeof(__output))){__ret = 1;}else{;if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}}(__ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -272,5 +271,5 @@ if(__element != NULL){assert(__element->type == ctype_to_rpc(typeof(__output)));
  * @warning May cause undefined behavior if types don't match
  */
 #define rpc_struct_get_unsafe(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__output)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
+if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
 
