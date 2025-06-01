@@ -49,6 +49,11 @@ enum rpc_protocol{
     RPC_MALFORMED,
 };
 
+typedef struct{
+    enum rpc_protocol msg_type;
+    rpc_struct_t msg;
+}rpc_msg_t;
+
 enum rpc_protocol rpc_protocol_str_enum(char* req);
 const char* rpc_protocol_enum_str(enum rpc_protocol operand);
 

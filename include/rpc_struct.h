@@ -34,6 +34,7 @@
 
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
+
 /**
  * @note Documentation Notice
  * 
@@ -65,11 +66,15 @@ enum rpc_types{
     RPC_string,
     RPC_struct,
     RPC_sizedbuf,
+    RPC_function,
 
     RPC_unknown,
     RPC_duplicate,
 };
+
 #include "rpc_struct_internal.h"
+#include "rpc_function.h"
+
 
 /**
  * @typedef rpc_struct_t
@@ -78,12 +83,14 @@ enum rpc_types{
  * This is the main container type for RPC data, used throughout the API.
  */
 typedef struct _rpc_struct *rpc_struct_t;
+typedef void (*rpc_struct_destructor)(rpc_struct_t rpc_struct);//function pointer to manualy destruct object in rpc_struct, like closing FDs or so
 
 /**
  * @brief Creates a new RPC structure
  * @return Pointer to newly created RPC structure
  */
 rpc_struct_t rpc_struct_create(void);  //creates a new rpc_struct_t
+void rpc_struct_add_destructor(rpc_struct_t rpc_struct, rpc_struct_destructor manual_destructor); //adds a destructor for rpc_struct, will be called before struct free
 
 /**
  * @brief Frees an RPC structure and all its contents
@@ -183,6 +190,8 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
  */
 struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key);
 
+void rpc_struct_increment_refcount(void* ptr);
+void rpc_struct_decrement_refcount(void* ptr);
 /**
  * @brief Maps C types to RPC types using _Generic
  * @param Native_type The C type to map
@@ -204,6 +213,7 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
                                     char*                : RPC_string,      \
                                     rpc_struct_t         : RPC_struct,      \
                                     rpc_sizedbuf_t       : RPC_sizedbuf,    \
+                                    rpc_function_t       : RPC_function,    \
                                     default              : RPC_unknown      \
 ))
 
@@ -247,8 +257,8 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
  *   assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
  *   assert(output == input);
  */
-#define rpc_struct_get(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);\
-if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(typeof(output)));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+#define rpc_struct_get(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
+if(__element != NULL){assert(__element->type == ctype_to_rpc(typeof(__output)));if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__output)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -261,6 +271,6 @@ if(element != NULL){assert(element->type == ctype_to_rpc(typeof(output)));if(rpc
  * @note Similar to rpc_struct_get but without type checking
  * @warning May cause undefined behavior if types don't match
  */
-#define rpc_struct_get_unsafe(rpc_struct, key, output)({assert(key != NULL);int ret = 1;struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);\
-if(element != NULL){if(rpc_is_pointer(element->type)){void* copy = element->data; memcpy(&output,&copy,sizeof(typeof(output)));} else{memcpy(&output,element->data,rpctype_sizes[element->type]);} ret = 0;}(ret);})
+#define rpc_struct_get_unsafe(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
+if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__output)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
 

@@ -81,7 +81,7 @@ int rpc_msg_send(int fd, rpc_struct_t rpc_struct, char uncrypt_key[RPC_ENCRYTION
     char* send_buf = rpc_struct_serialise(rpc_struct,&send_len);
 
     char ident[sizeof(RPC_PROTOCOL_IDENT) + sizeof(uint64_t)] = {0};
-    memcpy(RPC_PROTOCOL_IDENT,ident,sizeof(RPC_PROTOCOL_IDENT));
+    memcpy(ident,RPC_PROTOCOL_IDENT,sizeof(RPC_PROTOCOL_IDENT));
 
     uint64_t u64_sndlen = send_len;
     memcpy(&ident[sizeof(RPC_PROTOCOL_IDENT)],&u64_sndlen,sizeof(uint64_t));
@@ -92,5 +92,6 @@ int rpc_msg_send(int fd, rpc_struct_t rpc_struct, char uncrypt_key[RPC_ENCRYTION
 
 exit:
     free(send_buf);
+    assert(ret == 0);
     return ret;
 }

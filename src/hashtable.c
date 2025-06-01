@@ -212,12 +212,15 @@ char** hashtable_get_keys(hashtable* t){
 }
 
 void** hashtable_get_values(hashtable* t){
-	void** values = malloc(t->size * sizeof(void*)); assert(values);
+	void** values = NULL;
+	if(t->size > 0){
+		values = malloc(t->size * sizeof(void*)); assert(values);
 
-	unsigned int k = 0;
-	for(unsigned int i = 0; i < t->capacity; i++){
-		if(t->body[i].key != NULL && t->body[i].key != (char*)0xDEAD){
-			values[k++] = t->body[i].value;
+		unsigned int k = 0;
+		for(unsigned int i = 0; i < t->capacity; i++){
+			if(t->body[i].key != NULL && t->body[i].key != (char*)0xDEAD){
+				values[k++] = t->body[i].value;
+			}
 		}
 	}
 	return values;

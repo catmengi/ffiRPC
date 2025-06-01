@@ -32,13 +32,16 @@ enum rpc_server_errors{
     ERR_RPC_OK,
     ERR_RPC_PROTOTYPE_DIFFERENT,
     ERR_RPC_VARIADIC_NOT_ALLOWED,
-    ERR_RPC_FUNCTION_EXIST,
+    ERR_RPC_DOESNT_EXIST,
 };
 
 #ifdef RPC_INIT
 void rpc_server_init(); //server init for loader
 #endif
 
-int rpc_server_add_function(char* function_name, void* function_ptr,enum rpc_types return_type, enum rpc_types* prototype, int prototype_len);
-void rpc_server_remove_function(char* function_name);
-void rpc_server_launch_port(uint16_t port);
+rpc_struct_t rpc_server_create_object(const char* name);
+rpc_struct_t rpc_server_get_object(const char* name);
+int rpc_server_remove_object(const char* name);
+int rpc_server_object_add_function(rpc_struct_t obj, const char* fn_name, rpc_function_t fn);
+int rpc_server_object_remove_function(rpc_struct_t obj, const char* fn_name);
+rpc_function_t rpc_server_object_get_function(rpc_struct_t obj, const char* fn_name);

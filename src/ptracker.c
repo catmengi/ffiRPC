@@ -29,7 +29,8 @@ prec_t prec_get(void* ptr){
 }
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
-    ptracker == NULL ? ptracker = hashtable_create() : assert(prec_get(ptr) == NULL); //check that element wasnt set before should only be when ptracker was already inited
+    if(ptracker == NULL) ptracker = hashtable_create();
+    assert(prec_get(ptr) == NULL);
 
     prec_t new = malloc(sizeof(*new)); assert(new);
     new->ptr = ptr;

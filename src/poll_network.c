@@ -82,7 +82,7 @@ static void* poll_thread(void* paramP){
     poll_net_t net = paramP;
 
     while(net->active){
-        int scan = poll(net->fds,net->nfds,0);
+        int scan = poll(net->fds,net->nfds,15);
         assert(scan >= 0);
         if(scan > 0){
             for(nfds_t i = 0; i < net->nfds; i++){
