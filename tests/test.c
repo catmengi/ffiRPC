@@ -12,9 +12,19 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-int main(){
-    rpc_init();
+void check_rpc_struct_onfree_remove(){
+    rpc_struct_t t = rpc_struct_create();
+    rpc_struct_t c = rpc_struct_create();
 
+    rpc_struct_set(t,"!c",c);
+
+    rpc_struct_free(c);
+
+    assert(rpc_struct_exist(t,"!c") == 0);
+    rpc_struct_free(t);
+}
+
+void check_rpc_struct_ids(){
     rpc_struct_t s = rpc_struct_create();
 
     char* IDo = rpc_struct_id_get(s);
@@ -31,4 +41,11 @@ int main(){
 
     rpc_struct_free(s);
     rpc_struct_free(n);
+}
+
+int main(){
+    rpc_init();
+
+    check_rpc_struct_ids();
+    check_rpc_struct_onfree_remove();
 }
