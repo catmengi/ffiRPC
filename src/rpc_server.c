@@ -30,10 +30,12 @@ ffi_type* rpctype_to_libffi[RPC_duplicate] = {   //convert table used to convert
 
 //======= Server global variables declaration ! ===========
 static rpc_struct_t RS_objects = NULL;
+static rpc_struct_t RS_id_object_map = NULL;
 //=========================================================
 
 void rpc_server_init(){
     RS_objects = rpc_struct_create();
+    RS_id_object_map = rpc_struct_create();
 }
 
 rpc_struct_t rpc_server_create_object(const char* name){
@@ -44,24 +46,56 @@ rpc_struct_t rpc_server_create_object(const char* name){
         rpc_struct_free(obj);
         return NULL;
     }
+    rpc_struct_set(RS_id_object_map, rpc_struct_id_get(obj), obj);
     return obj;
+}
+int rpc_server_add_object(rpc_struct_t obj, const char* name){
+    int ret = rpc_struct_set(RS_objects, (char*)name, obj);
+    if(ret == 0){
+        rpc_struct_set(RS_id_object_map, rpc_struct_id_get(obj), obj);
+    }
+    return ret;
+}
+int rpc_server_remove_object(const char* name){
+    rpc_struct_t obj = NULL;
+    int ret = 1;
+
+    if((ret = rpc_struct_get(RS_objects, (char*)name, obj)) == 0){
+        ret += rpc_struct_remove(RS_id_object_map, rpc_struct_id_get(obj));
+        ret += rpc_struct_remove(RS_objects, (char*)name);
+    }
+    return ret;
 }
 
 inline static void rpc_server_ctx_load_object(rpc_struct_t obj){
     if(rpc_thread_context_get() == NULL) rpc_thread_context_set(rpc_struct_create());
-    assert(rpc_struct_set(rpc_thread_context_get(), "object", obj) == 0);
+    struct sc_queue_ptr* object_stack = NULL;
+    if(rpc_struct_get(rpc_thread_context_get(), "object_stack", object_stack) != 0){
+        object_stack = malloc(sizeof(*object_stack)); assert(object_stack);
+        sc_queue_init(object_stack);
+        assert(rpc_struct_set(rpc_thread_context_get(), "object_stack", object_stack) == 0);
+    }
+    rpc_struct_increment_refcount(obj); //we dont need it to free while it is still referenced somewhere outside other rpc_struct_t
+    sc_queue_add_first(object_stack, obj);
 }
 
 inline static void rpc_server_ctx_unload_object(){
-    rpc_struct_remove(rpc_thread_context_get(), "object");
+    struct sc_queue_ptr* object_stack = NULL;
+    if(rpc_struct_get(rpc_thread_context_get(), "object_stack", object_stack) == 0){
+        rpc_struct_t obj = sc_queue_del_first(object_stack);
+        rpc_struct_decrement_refcount(obj);
+    }
 }
 
 rpc_struct_t rpc_server_get_object(const char* name){
-    rpc_struct_t ret = NULL;
+    struct sc_queue_ptr* object_stack = NULL;
+    rpc_struct_t out = NULL;
+
     if(name == NULL){
-        rpc_struct_get(rpc_thread_context_get(), "object", ret);
-    } else rpc_struct_get(RS_objects, (char*)name, ret);
-    return ret;
+        if(rpc_struct_get(rpc_thread_context_get(), "object_stack", object_stack) == 0) out = sc_queue_peek_first(object_stack);
+    } else rpc_struct_get(RS_objects, (char*)name, out);
+
+    return out;
 }
 
 int rpc_server_object_add_function(rpc_struct_t obj, const char* fn_name, rpc_function_t fn){
@@ -75,10 +109,6 @@ int rpc_server_object_add_function(rpc_struct_t obj, const char* fn_name, rpc_fu
 
 int rpc_server_object_remove_function(rpc_struct_t obj, const char* fn_name){
     return rpc_struct_remove(obj,(char*)fn_name);
-}
-
-int rpc_server_remove_object(const char* name){
-    return rpc_struct_remove(RS_objects,(char*)name);
 }
 
 rpc_function_t rpc_server_object_get_function(rpc_struct_t obj, const char* fn_name){

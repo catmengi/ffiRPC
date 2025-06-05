@@ -35,6 +35,9 @@
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
 
+#define RPC_STRUCT_ID_SIZE 65
+
+
 /**
  * @note Documentation Notice
  * 
@@ -192,6 +195,9 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
 
 void rpc_struct_increment_refcount(void* ptr);
 void rpc_struct_decrement_refcount(void* ptr);
+
+char* rpc_struct_id_get(rpc_struct_t rpc_struct); //get rpc_struct's random ID
+void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]); //sets rpc_struct's ID to particular value
 /**
  * @brief Maps C types to RPC types using _Generic
  * @param Native_type The C type to map

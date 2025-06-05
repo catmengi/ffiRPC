@@ -34,7 +34,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#define RPC_STRUCT_SERIALISE_IDENT "ffiRPC v0 format version!"
+#define RPC_STRUCT_SERIALISE_IDENT "ffiRPC v01 format version!"
 #define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
 
 size_t rpctype_sizes[RPC_duplicate] = {
@@ -47,8 +47,11 @@ size_t rpctype_sizes[RPC_duplicate] = {
     0,0,0,0,0
 };
 
+static char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+
 struct _rpc_struct{
     hashtable* ht;
+    char ID[RPC_STRUCT_ID_SIZE];
     rpc_struct_destructor manual_destructor;
 };
 
@@ -80,6 +83,15 @@ rpc_struct_t rpc_struct_create(void){
     assert(rpc_struct);
 
     rpc_struct->ht = hashtable_create();
+
+    arc4random_buf(rpc_struct->ID,RPC_STRUCT_ID_SIZE - 1);
+    rpc_struct->ID[RPC_STRUCT_ID_SIZE - 1] = '\0';
+
+    for(int i = 0 ; i < RPC_STRUCT_ID_SIZE - 1; i++){
+        while(rpc_struct->ID[i] == '\0') rpc_struct->ID[i] = arc4random();
+        rpc_struct->ID[i] = ID_alphabet[rpc_struct->ID[i] % (sizeof(ID_alphabet) - 1)];
+    }
+
     rpc_struct->manual_destructor = NULL;
 
     return rpc_struct;
@@ -90,7 +102,7 @@ void rpc_struct_add_destructor(rpc_struct_t rpc_struct, rpc_struct_destructor ma
         rpc_struct->manual_destructor = manual_destructor;
     }
 }
-//========================
+//======================== ptracker callbacks code, aka magic!
 
 static void rpc_struct_onzero_cb(prec_t prec){
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
@@ -178,6 +190,8 @@ static struct prec_callbacks rpc_struct_default_prec_cbs = {
     .decrement = rpc_struct_decrement_cb,
 };
 
+//=====================================================
+
 static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
     if(rpc_struct){
         if(rpc_struct->manual_destructor) rpc_struct->manual_destructor(rpc_struct);
@@ -198,6 +212,14 @@ void rpc_struct_free(rpc_struct_t rpc_struct){
         if(prec) prec_delete(prec);
         else rpc_struct_free_internal(rpc_struct);
     }
+}
+
+char* rpc_struct_id_get(rpc_struct_t rpc_struct){
+    return rpc_struct->ID;
+}
+
+void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]){
+    memcpy(rpc_struct->ID,ID,RPC_STRUCT_ID_SIZE);
 }
 
 int rpc_is_pointer(enum rpc_types type){ //return 1 if rpc_type is pointer, 0 if not
@@ -375,7 +397,7 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
 
 
     uint64_t u64_len = serialise_len;
-    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT);
+    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT) + sizeof(rpc_struct->ID);
     for(size_t i = 0; i < serialise_len; i++){
         final_buflen += strlen(pre_serialise[i].key) + 1; //key
         final_buflen += 1; //type
@@ -383,10 +405,11 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
         final_buflen += pre_serialise[i].buflen; //payload length
     }
     char* buf = malloc(final_buflen); assert(buf);
+    char* write_buf = buf;
 
-    memcpy(buf,RPC_STRUCT_SERIALISE_IDENT,sizeof(RPC_STRUCT_SERIALISE_IDENT));
 
-    char* write_buf = buf + sizeof(RPC_STRUCT_SERIALISE_IDENT);
+    memcpy(write_buf,RPC_STRUCT_SERIALISE_IDENT,sizeof(RPC_STRUCT_SERIALISE_IDENT)); write_buf += sizeof(RPC_STRUCT_SERIALISE_IDENT);
+    memcpy(write_buf, rpc_struct->ID, sizeof(rpc_struct->ID)); write_buf += RPC_STRUCT_ID_SIZE;
 
     memcpy(write_buf,&u64_len,sizeof(uint64_t)); write_buf += sizeof(uint64_t);
 
@@ -418,17 +441,24 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
 rpc_struct_t rpc_struct_unserialise(char* buf){
     assert(buf);
 
-    if((sizeof(RPC_STRUCT_SERIALISE_IDENT) - 1 != strlen(buf)) || (memcmp(buf,RPC_STRUCT_SERIALISE_IDENT,strlen(buf)) != 0)) //try to not compare outside ident string
+    if((sizeof(RPC_STRUCT_SERIALISE_IDENT) - 1 != strnlen(buf,sizeof(RPC_STRUCT_SERIALISE_IDENT)))
+        || (memcmp(buf,RPC_STRUCT_SERIALISE_IDENT,strnlen(buf,sizeof(RPC_STRUCT_SERIALISE_IDENT))) != 0)) //try to not compare outside ident string
         return NULL;
 
-    buf += strlen(buf) + 1;
+    buf += sizeof(RPC_STRUCT_SERIALISE_IDENT);
+
+    rpc_struct_t new = rpc_struct_create();
+
+    char ID[RPC_STRUCT_ID_SIZE];
+    memcpy(ID,buf, RPC_STRUCT_ID_SIZE);
+    buf += RPC_STRUCT_ID_SIZE;
+
+    rpc_struct_id_set(new, ID);
 
     uint64_t u64_parse_len = 0;
     memcpy(&u64_parse_len,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
 
-    rpc_struct_t new = rpc_struct_create();
     struct rpc_serialise_element serialise = {0};
-
     for(uint64_t i = 0; i < u64_parse_len; i++){
         serialise.key = buf; buf += strlen(serialise.key) + 1;
         serialise.type = *buf; buf++;

@@ -16,10 +16,19 @@ int main(){
     rpc_init();
 
     rpc_struct_t s = rpc_struct_create();
-    rpc_struct_set(s,"1",123);
 
-    double o;
-    assert(rpc_struct_get(s,"1",o) != 0);
+    char* IDo = rpc_struct_id_get(s);
+
+    size_t u = 0;
+    char* buf = rpc_struct_serialise(s, &u);
+
+    rpc_struct_t n = rpc_struct_unserialise(buf); free(buf);
+
+    assert(strcmp(IDo, rpc_struct_id_get(n)) == 0);
+
+    puts(rpc_struct_id_get(s));
+    puts(rpc_struct_id_get(n));
 
     rpc_struct_free(s);
+    rpc_struct_free(n);
 }
