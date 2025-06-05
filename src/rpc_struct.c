@@ -397,7 +397,7 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
 
 
     uint64_t u64_len = serialise_len;
-    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT) + sizeof(rpc_struct->ID);
+    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT) + RPC_STRUCT_ID_SIZE;
     for(size_t i = 0; i < serialise_len; i++){
         final_buflen += strlen(pre_serialise[i].key) + 1; //key
         final_buflen += 1; //type
