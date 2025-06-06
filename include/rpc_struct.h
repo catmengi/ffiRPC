@@ -198,6 +198,8 @@ void rpc_struct_decrement_refcount(void* ptr);
 
 char* rpc_struct_id_get(rpc_struct_t rpc_struct); //get rpc_struct's random ID
 void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]); //sets rpc_struct's ID to particular value
+
+rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer to copy's original. NULL if not a copy
 /**
  * @brief Maps C types to RPC types using _Generic
  * @param Native_type The C type to map

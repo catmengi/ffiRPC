@@ -43,9 +43,32 @@ void check_rpc_struct_ids(){
     rpc_struct_free(n);
 }
 
+void check_copy_of(){
+    rpc_struct_t o = rpc_struct_create();
+    rpc_struct_t c = rpc_struct_copy(o);
+
+    assert(rpc_struct_whoose_copy(c) == NULL); //non trackable object
+
+    rpc_struct_free(o);
+    rpc_struct_free(c);
+
+    rpc_struct_t t = rpc_struct_create();
+    rpc_struct_t to = rpc_struct_create();
+
+    rpc_struct_set(t,"0",to);
+
+    rpc_struct_t tc = rpc_struct_copy(to);
+    assert(rpc_struct_whoose_copy(tc));
+
+    rpc_struct_free(to); //addition test;
+    rpc_struct_free(t);
+    rpc_struct_free(tc);
+}
+
 int main(){
     rpc_init();
 
     check_rpc_struct_ids();
     check_rpc_struct_onfree_remove();
+    check_copy_of();
 }

@@ -8,80 +8,101 @@
 #define NOT_IMPLEMENTED
 
 struct _rpc_function{
-    NOT_IMPLEMENTED rpc_struct_t rpc_info;
-                           //rpc_info is NULL when it is used by server to call "original" function. NON NULL when this function was received through RPC client, rpc_info will contain:
-                           //ffi closures, CIFs, pointer to client. You will be able to call fn_ptr just like any other function pointer through cast, closure will handle rest
+    enum rpc_types* prototype;
+    int prototype_len;
 
-    rpc_sizedbuf_t prototype_buf;
     enum rpc_types return_type;
-    void* fn_ptr;
+    void* fnptr;
 };
 
-static rpc_function_t rpc_function_create_internal(void* fnptr,enum rpc_types return_type, rpc_sizedbuf_t prototype_buf){
-    rpc_function_t fn = malloc(sizeof(*fn)); assert(fn);
-    fn->prototype_buf = prototype_buf;
-    fn->return_type = return_type;
-    fn->fn_ptr = fnptr;
+rpc_function_t rpc_function_create(){
+    rpc_function_t fn = calloc(1,sizeof(*fn));
     return fn;
-}
-rpc_function_t rpc_function_create(void* fn_ptr,enum rpc_types return_type,enum rpc_types* prototype, int prototype_len){
-    return rpc_function_create_internal(fn_ptr,return_type,prototype != NULL ? rpc_sizedbuf_create((char*)prototype, sizeof(*prototype) * prototype_len) : NULL);
 }
 
 void rpc_function_free(rpc_function_t fn){
-    assert(fn);
-
-    rpc_sizedbuf_free(fn->prototype_buf);
-    free(fn);
+    if(fn){
+        free(fn->prototype);
+        free(fn);
+    }
 }
 
 char* rpc_function_serialise(rpc_function_t fn, size_t* out_len){
-    rpc_struct_t ser = rpc_struct_create();
+    rpc_struct_t serialise = rpc_struct_create();
 
-    if(fn->prototype_buf){
-        rpc_struct_set(ser,"prototype",fn->prototype_buf);
-        rpc_struct_increment_refcount(fn->prototype_buf); //we dont want that fn->prototype_buf will be freed without our permission, right?
+    if(fn->prototype){
+        char conv[rpc_function_get_prototype_len(fn)];
+        enum rpc_types* proto = rpc_function_get_prototype(fn);
+
+        for(int i = 0; i < rpc_function_get_prototype_len(fn); i++){
+            conv[i] = proto[i];
+        }
+        rpc_struct_set(serialise, "prototype", rpc_sizedbuf_create((char*)conv, rpc_function_get_prototype_len(fn)));
     }
-    assert(rpc_struct_set(ser,"return_type", (uint8_t)fn->return_type) == 0);
+    rpc_struct_set(serialise, "return_type", (uint8_t)fn->return_type);
 
-    char* ret = rpc_struct_serialise(ser,out_len);
-    rpc_struct_free(ser);
+    char* ret = rpc_struct_serialise(serialise,out_len);
+    rpc_struct_free(serialise);
 
     return ret;
 }
-
 rpc_function_t rpc_function_unserialise(char* buf){
-    rpc_struct_t unser = rpc_struct_unserialise(buf);
-    rpc_sizedbuf_t prototype_buf = NULL;
+    rpc_struct_t unserialise = rpc_struct_unserialise(buf);
+    rpc_function_t fn = rpc_function_create();
 
-    uint8_t return_type = RPC_none;
-    rpc_function_t ret = NULL;
-    if(rpc_struct_get(unser, "prototype",prototype_buf) == 0){
-        rpc_struct_increment_refcount(prototype_buf); //transfer ownership to us, same as in rpc_function_serialise
+    rpc_sizedbuf_t serproto = NULL;
+    if(rpc_struct_get(unserialise, "prototype", serproto) == 0){
+        size_t serproto_l = 0;
+        char* conv = rpc_sizedbuf_getbuf(serproto,&serproto_l);
+
+        enum rpc_types proto[serproto_l];
+        for(int i = 0; i < serproto_l; i++){
+            proto[i] = conv[i];
+        }
+        rpc_function_set_prototype(fn,proto,serproto_l);
     }
-    assert(rpc_struct_get(unser, "return_type", return_type) == 0);
+    uint8_t conv_rettype = 0;
+    assert(rpc_struct_get(unserialise,"return_type", conv_rettype) == 0);
 
-    // BUILD CALLABLE PROXY FUNCTION VIA LIBFFI!
-    ret = rpc_function_create_internal(NULL,return_type,prototype_buf);
-    rpc_struct_free(unser);
-    return ret;
+    rpc_function_set_return_type(fn,conv_rettype);
 
+    rpc_struct_free(unserialise);
+    return fn;
 }
 
 void* rpc_function_get_fnptr(rpc_function_t fn){
-    assert(fn);
-    return fn->fn_ptr;
+    return fn != NULL ? fn->fnptr : NULL;
 }
-enum rpc_types* rpc_function_get_prototype(rpc_function_t fn, int* out_length){
-    if(fn->prototype_buf != NULL){
-        size_t szbuf_olen = 0;
-        enum rpc_types* ret = (enum rpc_types*)rpc_sizedbuf_getbuf(fn->prototype_buf, &szbuf_olen);
-
-        *out_length = szbuf_olen / sizeof(*ret);
-
-        return ret;
-    } else {*out_length = 0; return NULL;}
+void rpc_function_set_fnptr(rpc_function_t fn, void* fnptr){
+    if(fn){
+        fn->fnptr = fnptr;
+    }
 }
+
+void rpc_function_set_prototype(rpc_function_t fn, enum rpc_types* prototype, int prototype_len){
+    if(fn){
+        if(fn->prototype)
+            free(fn->prototype);
+
+        fn->prototype = malloc(prototype_len * sizeof(*prototype)); assert(fn->prototype);
+        fn->prototype_len = prototype_len;
+
+        memcpy(fn->prototype, prototype, sizeof(*fn->prototype) * fn->prototype_len);
+    }
+}
+
+enum rpc_types* rpc_function_get_prototype(rpc_function_t fn){
+    return fn->prototype;
+}
+int rpc_function_get_prototype_len(rpc_function_t fn){
+    return fn->prototype_len;
+}
+void rpc_function_set_return_type(rpc_function_t fn, enum rpc_types return_type){
+    if(fn){
+        fn->return_type = return_type;
+    }
+}
+
 enum rpc_types rpc_function_get_return_type(rpc_function_t fn){
     return fn->return_type;
 }

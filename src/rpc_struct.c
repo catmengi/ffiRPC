@@ -37,6 +37,7 @@
 #define RPC_STRUCT_SERIALISE_IDENT "ffiRPC v01 format version!"
 #define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
 
+static struct prec_callbacks rpc_struct_default_prec_cbs;
 size_t rpctype_sizes[RPC_duplicate] = {
     0,
     sizeof(char),
@@ -52,6 +53,8 @@ static char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 struct _rpc_struct{
     hashtable* ht;
     char ID[RPC_STRUCT_ID_SIZE];
+
+    rpc_struct_t copyof;
     rpc_struct_destructor manual_destructor;
 };
 
@@ -92,6 +95,7 @@ rpc_struct_t rpc_struct_create(void){
         rpc_struct->ID[i] = ID_alphabet[rpc_struct->ID[i] % (sizeof(ID_alphabet) - 1)];
     }
 
+    rpc_struct->copyof = NULL;
     rpc_struct->manual_destructor = NULL;
 
     return rpc_struct;
@@ -562,7 +566,20 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
             }
         }
     }
+    copy->copyof = original;
     return copy;
+}
+
+rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct){
+    rpc_struct_t parent = rpc_struct->copyof;
+    if(rpc_struct->copyof != NULL){
+        prec_t parent_prec = prec_get(rpc_struct->copyof);
+        if(parent_prec == NULL){ //object no longer exist or parent rpc_struct is NOT TRACKER EVERYWHERE ELSE?
+            rpc_struct->copyof = NULL;
+            parent = NULL;
+        }
+    }
+    return parent;
 }
 
 size_t rpc_struct_length(rpc_struct_t rpc_struct){

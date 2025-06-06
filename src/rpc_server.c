@@ -142,9 +142,8 @@ static int rpc_server_call_object(rpc_struct_t obj, char* fn_name, rpc_struct_t 
     rpc_function_t fn = NULL;
     if(rpc_struct_get(obj, fn_name, fn)) return ERR_RPC_DOESNT_EXIST;
 
-    int nonvar_proto_len = 0;
-    if(!proto_equals(rpc_function_get_prototype(fn,&nonvar_proto_len),nonvar_proto_len,params)) return ERR_RPC_PROTOTYPE_DIFFERENT;
-    if(!is_variadic_allowed(params,nonvar_proto_len)) return ERR_RPC_VARIADIC_NOT_ALLOWED;
+    if(!proto_equals(rpc_function_get_prototype(fn),rpc_function_get_prototype_len(fn),params)) return ERR_RPC_PROTOTYPE_DIFFERENT;
+    if(!is_variadic_allowed(params,rpc_function_get_prototype_len(fn))) return ERR_RPC_VARIADIC_NOT_ALLOWED;
 
     ffi_cif cif;
     ffi_type** ffi_prototype = malloc(sizeof(*ffi_prototype) * rpc_struct_length(params)); assert(ffi_prototype);
@@ -154,7 +153,7 @@ static int rpc_server_call_object(rpc_struct_t obj, char* fn_name, rpc_struct_t 
         sprintf(el,"%d",i);
         ffi_prototype[i] = rpctype_to_libffi[rpc_struct_typeof(params,el)];
     }
-    assert(ffi_prep_cif_var(&cif,FFI_DEFAULT_ABI,nonvar_proto_len,(int)rpc_struct_length(params),rpctype_to_libffi[rpc_function_get_return_type(fn)],ffi_prototype) == 0);
+    assert(ffi_prep_cif_var(&cif,FFI_DEFAULT_ABI,rpc_function_get_prototype_len(fn),(int)rpc_struct_length(params),rpctype_to_libffi[rpc_function_get_return_type(fn)],ffi_prototype) == 0);
     void** ffi_arguments = calloc(rpc_struct_length(params),sizeof(void*)); assert(ffi_arguments);
 
     struct sc_queue_ptr updated_arguments;
