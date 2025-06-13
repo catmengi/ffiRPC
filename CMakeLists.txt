@@ -14,6 +14,7 @@ set(SRC
     ${SRC_DIR}/poll_network.c
     ${SRC_DIR}/rpc_server.c
     ${SRC_DIR}/rpc_sizedbuf.c 
+    ${SRC_DIR}/rpc_function.c
     ${SRC_DIR}/rpc_struct.c
     ${SRC_DIR}/rpc_thread_context.c
     ${SRC_DIR}/rpc_protocol.c
