@@ -26,6 +26,7 @@
 #include "../include/hashtable.h"
 
 #include <assert.h>
+#include <jansson.h>
 #include <string.h>
 #include <stdint.h>
 
@@ -58,22 +59,46 @@ void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
     }
 }
 
-char* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf, size_t* out_length){
-    *out_length = sizeof(uint64_t) + szbuf->length;
-    char* buf = malloc(*out_length); assert(buf);
+#define STRINGIFY(x) #x
+json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf){
+    json_t* root = json_object(); assert(root);
 
-    uint64_t U64_len = szbuf->length;
-    memcpy(buf,&U64_len,sizeof(U64_len));
-    memcpy(buf + sizeof(uint64_t),szbuf->buf,szbuf->length);
+    json_object_set_new(root,"type",json_string(STRINGIFY(RPC_sizedbuf)));
 
-    return buf;
+    json_t* array = json_array();
+    json_object_set_new(root, "serialised", array);
+
+    for(size_t i = 0; i < szbuf->length; i++){
+        assert(json_array_append_new(array,json_integer(szbuf->buf[i])) == 0);
+    }
+
+    return root;
 }
 
-rpc_sizedbuf_t rpc_sizedbuf_unserialise(char* buf){
-    uint64_t U64_len = 0;
-    memcpy(&U64_len,buf,sizeof(U64_len));
+rpc_sizedbuf_t rpc_sizedbuf_unserialise(json_t* json){
+    rpc_sizedbuf_t szbuf = malloc(sizeof(*szbuf)); assert(szbuf);
+    json_t* type = json_object_get(json,"type");
 
-    return rpc_sizedbuf_create(buf + sizeof(uint64_t),(size_t)U64_len);
+    if(type){
+        const char* stype = json_string_value(type);
+        if(stype == NULL || strcmp(stype, STRINGIFY(RPC_sizedbuf)) != 0) goto bad_exit;
+    } else goto bad_exit;
+
+    json_t* array = json_object_get(json,"serialised");
+    size_t i = 0;
+    json_t* cur_num = NULL;
+
+    szbuf->length = json_array_size(array);
+    szbuf->buf = malloc(szbuf->length); assert(szbuf->buf);
+
+    json_array_foreach(array,i,cur_num){
+        szbuf->buf[i] = json_integer_value(json_array_get(array,i));
+    }
+
+    return szbuf;
+bad_exit:
+    rpc_sizedbuf_free(szbuf);
+    return NULL;
 }
 
 uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf){

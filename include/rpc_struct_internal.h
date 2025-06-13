@@ -12,7 +12,6 @@ struct rpc_container_element{
     size_t length;
     enum rpc_types type;
 };
-extern size_t rpctype_sizes[RPC_duplicate];
 
 #include "rpc_struct.h"
 
@@ -20,14 +19,14 @@ extern size_t rpctype_sizes[RPC_duplicate];
 
 #define c_to_rpc(element,var)({\
     element->type = ctype_to_rpc(typeof(var));\
-    char __tmp[(rpctype_sizes[element->type] > 0 ? rpctype_sizes[element->type] : sizeof(void*))]; *(typeof(var)*)__tmp = var;\
+    char __tmp[sizeof(typeof(var))]; *(typeof(var)*)__tmp = var;\
     if(rpc_is_pointer(element->type)){\
         element->length = 0;\
         element->data = *(void**)__tmp;\
     } else {\
-        element->data = malloc(rpctype_sizes[element->type]);\
+        element->data = malloc(sizeof(typeof(var)));\
         assert(element->data);\
-        element->length = rpctype_sizes[element->type];\
+        element->length = sizeof(typeof(var));\
         memcpy(element->data,__tmp,element->length);\
     }})
 

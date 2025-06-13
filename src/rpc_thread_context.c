@@ -47,7 +47,7 @@ void rpc_deinit_thread_context(){
     }
 }
 
-void rpc_thread_context_set(rpc_struct_t rpc_struct){
+rpc_struct_t rpc_thread_context_set(rpc_struct_t rpc_struct){
     assert(thread_context);
 
     void* thread_as_ptr = (void*)pthread_self();
@@ -56,7 +56,8 @@ void rpc_thread_context_set(rpc_struct_t rpc_struct){
 
     if(rpc_struct){
         hashtable_set(thread_context,strdup(ht_access),rpc_struct);
-    } else {char* free_key = thread_context->body[hashtable_find_slot(thread_context,ht_access)].key; hashtable_remove(thread_context,ht_access); free(free_key);}
+        return rpc_struct;
+    } else {char* free_key = thread_context->body[hashtable_find_slot(thread_context,ht_access)].key; hashtable_remove(thread_context,ht_access); free(free_key); return NULL;}
 }
 rpc_struct_t rpc_thread_context_get(){
     assert(thread_context);

@@ -32,6 +32,8 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <jansson.h>
+
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
 
@@ -55,16 +57,8 @@
  */
 enum rpc_types{
     RPC_none, //same as void
-    RPC_char = 1,
-    RPC_int8 = 1,
-    RPC_uint8,
-    RPC_int16,
-    RPC_uint16,
-    RPC_int32,
-    RPC_uint32,
-    RPC_int64,
-    RPC_uint64,
-    RPC_double,
+    RPC_number,
+    RPC_real,
 
     RPC_string,
     RPC_struct,
@@ -72,7 +66,6 @@ enum rpc_types{
     RPC_function,
 
     RPC_unknown,
-    RPC_duplicate,
 };
 
 #include "rpc_struct_internal.h"
@@ -116,20 +109,20 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with ke
  * @param buflen_output Pointer to store the resulting buffer length
  * @return Pointer to serialized data buffer
  */
-char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output); //serialises rpc_struct into char*. Len will be outputed into buflen_output
+ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct); //serialises rpc_struct into char*. Len will be outputed into buflen_output
 
-/**
- * @brief Deserializes binary data to RPC structure
- * @param buf Buffer with serialized data
- * @return Pointer to deserialized RPC structure
- */
-rpc_struct_t rpc_struct_unserialise(char* buf); //unserialise buf created with rpc_struct_serialise
+ /**
+  * @brief Deserializes binary data to RPC structure
+  * @param buf Buffer with serialized data
+  * @return Pointer to deserialized RPC structure
+  */
+ rpc_struct_t rpc_struct_unserialise(json_t* json); //unserialise buf created with rpc_struct_serialise
 
-/**
- * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
- * @param original Structure to copy
- * @return Pointer to the new copy
- */
+ /**
+  * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
+  * @param original Structure to copy
+  * @return Pointer to the new copy
+  */
 rpc_struct_t rpc_struct_copy(rpc_struct_t original); //returns a copy of "original"
 
 /**
@@ -207,16 +200,17 @@ rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer t
  */
 
 #define ctype_to_rpc(Native_type) (_Generic((Native_type)0,                    \
-                                    char                 : RPC_char,        \
-                                    int8_t               : RPC_int8,        \
-                                    uint8_t              : RPC_uint8,       \
-                                    int16_t              : RPC_int16,       \
-                                    uint16_t             : RPC_uint16,      \
-                                    int32_t              : RPC_int32,       \
-                                    uint32_t             : RPC_uint32,      \
-                                    int64_t              : RPC_int64,       \
-                                    uint64_t             : RPC_uint64,      \
-                                    double               : RPC_double,      \
+                                    char                 : RPC_number,        \
+                                    int8_t               : RPC_number,        \
+                                    uint8_t              : RPC_number,       \
+                                    int16_t              : RPC_number,       \
+                                    uint16_t             : RPC_number,      \
+                                    int32_t              : RPC_number,       \
+                                    uint32_t             : RPC_number,      \
+                                    int64_t              : RPC_number,       \
+                                    uint64_t             : RPC_number,      \
+                                    float                : RPC_real,      \
+                                    double               : RPC_real,      \
                                     char*                : RPC_string,      \
                                     rpc_struct_t         : RPC_struct,      \
                                     rpc_sizedbuf_t       : RPC_sizedbuf,    \
@@ -265,7 +259,7 @@ rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer t
  *   assert(output == input);
  */
 #define rpc_struct_get(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){if(__element->type != ctype_to_rpc(typeof(__output))){__ret = 1;}else{;if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}}(__ret);})
+if(__element != NULL){if(__element->type == ctype_to_rpc(typeof(__output))){;if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,__element->length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element->length);} __ret = 0;}}(__ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -279,5 +273,5 @@ if(__element != NULL){if(__element->type != ctype_to_rpc(typeof(__output))){__re
  * @warning May cause undefined behavior if types don't match
  */
 #define rpc_struct_get_unsafe(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,rpctype_sizes[__element->type]);} __ret = 0;}(__ret);})
+if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,__element->length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element->length);} __ret = 0;}(__ret);})
 

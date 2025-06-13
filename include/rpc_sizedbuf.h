@@ -26,6 +26,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <jansson.h>
 
 typedef struct _rpc_sizedbuf *rpc_sizedbuf_t;
 
@@ -37,5 +38,5 @@ void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf); //free sizedbuf and copyed "buf"
 
 uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf); //return a hash of szbuf
 
-char* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf, size_t* out_length);
-rpc_sizedbuf_t rpc_sizedbuf_unserialise(char* buf);
+json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf);
+rpc_sizedbuf_t rpc_sizedbuf_unserialise(json_t* json);

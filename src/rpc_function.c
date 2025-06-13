@@ -2,10 +2,9 @@
 #include "../include/rpc_struct.h"
 
 #include <assert.h>
+#include <jansson.h>
 #include <stdint.h>
 #include <time.h>
-
-#define NOT_IMPLEMENTED
 
 struct _rpc_function{
     enum rpc_types* prototype;
@@ -27,47 +26,52 @@ void rpc_function_free(rpc_function_t fn){
     }
 }
 
-char* rpc_function_serialise(rpc_function_t fn, size_t* out_len){
-    rpc_struct_t serialise = rpc_struct_create();
+#define STRINGIFY(x) #x
+json_t* rpc_function_serialise(rpc_function_t fn){
+    json_t* root = json_object(); assert(root);
 
-    if(fn->prototype){
-        char conv[rpc_function_get_prototype_len(fn)];
-        enum rpc_types* proto = rpc_function_get_prototype(fn);
+    json_object_set_new(root,"type",json_string(STRINGIFY(RPC_function)));
+    json_object_set_new(root,"return_type",json_integer(fn->return_type));
 
-        for(int i = 0; i < rpc_function_get_prototype_len(fn); i++){
-            conv[i] = proto[i];
+    if(fn->prototype && fn->prototype_len > 0){
+        json_t* array = json_array();
+        json_object_set_new(root,"prototype",array);
+
+        for(int i = 0; i < fn->prototype_len; i++){
+            json_array_set_new(array,i,json_integer(fn->prototype[i]));
         }
-        rpc_struct_set(serialise, "prototype", rpc_sizedbuf_create((char*)conv, rpc_function_get_prototype_len(fn)));
     }
-    rpc_struct_set(serialise, "return_type", (uint8_t)fn->return_type);
 
-    char* ret = rpc_struct_serialise(serialise,out_len);
-    rpc_struct_free(serialise);
-
-    return ret;
+    return root;
 }
-rpc_function_t rpc_function_unserialise(char* buf){
-    rpc_struct_t unserialise = rpc_struct_unserialise(buf);
+rpc_function_t rpc_function_unserialise(json_t* json){
     rpc_function_t fn = rpc_function_create();
+    rpc_function_set_fnptr(fn,NULL);
 
-    rpc_sizedbuf_t serproto = NULL;
-    if(rpc_struct_get(unserialise, "prototype", serproto) == 0){
-        size_t serproto_l = 0;
-        char* conv = rpc_sizedbuf_getbuf(serproto,&serproto_l);
+    json_t* type = json_object_get(json,"type");
+    if(type){
+        const char* stype = json_string_value(type);
+        if(stype == NULL || strcmp(stype, STRINGIFY(RPC_function)) != 0) goto bad_exit;
+    } else goto bad_exit;
 
-        enum rpc_types proto[serproto_l];
-        for(int i = 0; i < serproto_l; i++){
-            proto[i] = conv[i];
+    fn->return_type = json_integer_value(json_object_get(json,"return_type"));
+
+    json_t* array = json_object_get(json,"prototype");
+    if(array){
+        fn->prototype_len = json_array_size(array);
+        fn->prototype = malloc(sizeof(*fn->prototype) * fn->prototype_len); assert(fn->prototype);
+
+        int i = 0;
+        json_t* proto_el = NULL;
+        json_array_foreach(array,i,proto_el){
+            fn->prototype[i] = json_integer_value(proto_el);
         }
-        rpc_function_set_prototype(fn,proto,serproto_l);
     }
-    uint8_t conv_rettype = 0;
-    assert(rpc_struct_get(unserialise,"return_type", conv_rettype) == 0);
 
-    rpc_function_set_return_type(fn,conv_rettype);
-
-    rpc_struct_free(unserialise);
     return fn;
+bad_exit:
+    rpc_function_free(fn);
+    return NULL;
 }
 
 void* rpc_function_get_fnptr(rpc_function_t fn){

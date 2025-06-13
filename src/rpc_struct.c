@@ -29,24 +29,15 @@
 #include "../include/ptracker.h"
 #include "../include/sc_queue.h"
 
+#include <jansson.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <assert.h>
 #include <stdlib.h>
 
-#define RPC_STRUCT_SERIALISE_IDENT "ffiRPC v01 format version!"
 #define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
 
 static struct prec_callbacks rpc_struct_default_prec_cbs;
-size_t rpctype_sizes[RPC_duplicate] = {
-    0,
-    sizeof(char),
-    sizeof(uint8_t), sizeof(int16_t),
-    sizeof(uint16_t), sizeof(int32_t),
-    sizeof(uint32_t), sizeof(int64_t),
-    sizeof(uint64_t), sizeof(double),
-    0,0,0,0,0
-};
 
 static char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -327,7 +318,8 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     return duplicates;
 }
 
-char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
+#define STRINGIFY(x) #x
+json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
     hashtable* dupless_ht = malloc(sizeof(*dupless_ht)); assert(dupless_ht);
 
     dupless_ht->size = rpc_struct->ht->size;
@@ -336,7 +328,7 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
     dupless_ht->body = malloc(dupless_ht->capacity * sizeof(*dupless_ht->body)); assert(dupless_ht);
     memcpy(dupless_ht->body,rpc_struct->ht->body,sizeof(hashtable_entry) * dupless_ht->capacity);
 
-    size_t dups_len = 0;/* size_t serialise_elements_len = rpc_struct_length(rpc_struct); //we should have space for dublicates but they will be serialised in other manner*/
+    size_t dups_len = 0;
     struct rpc_struct_duplicate_info* dups = rpc_struct_found_duplicates(rpc_struct,&dups_len);
 
     size_t skip_items = 0;
@@ -356,184 +348,175 @@ char* rpc_struct_serialise(rpc_struct_t rpc_struct, size_t* buflen_output){
         }
     }
 
-    size_t serialise_len = rpc_struct_length(rpc_struct) - skip_items;
-    size_t PS_index = 0;
+    json_t* root = json_object(); assert(root);
+    json_object_set_new(root, "ID", json_string(rpc_struct->ID));
+    json_object_set_new(root, "type", json_string(STRINGIFY(RPC_struct)));
+
+    json_t* serialised = json_object();
+    json_object_set_new(root,"serialised",serialised);
+
     char** dupless_keys = hashtable_get_keys(dupless_ht);
-    struct rpc_serialise_element* pre_serialise = calloc(serialise_len,sizeof(*pre_serialise)); assert(pre_serialise);
     for(size_t i = 0; i < dupless_ht->size; i++){
-        struct rpc_container_element* element = hashtable_get(dupless_ht,dupless_keys[i]);
-        pre_serialise[PS_index].type = element->type;
-        pre_serialise[PS_index].key = dupless_keys[i];
-        if(rpc_is_pointer(element->type)){
-            switch(element->type){
+        struct rpc_container_element* el = hashtable_get(dupless_ht, dupless_keys[i]);
+        json_t* item = NULL;
+        if(rpc_is_pointer(el->type) && el->type != RPC_string){
+            switch(el->type){
                 case RPC_struct:
-                    pre_serialise[PS_index].buf = rpc_struct_serialise(element->data,&pre_serialise[PS_index].buflen);
-                    break;
-                case RPC_sizedbuf:
-                    pre_serialise[PS_index].buf = rpc_sizedbuf_serialise(element->data,&pre_serialise[PS_index].buflen);
+                    item = rpc_struct_serialise(el->data);
                     break;
                 case RPC_function:
-                    pre_serialise[PS_index].buf = rpc_function_serialise(element->data,&pre_serialise[PS_index].buflen);
+                    item = rpc_function_serialise(el->data);
                     break;
-                case RPC_string:
-                    pre_serialise[PS_index].buf = element->data;
-                    pre_serialise[PS_index].buflen = strlen(element->data) + 1;
+                case RPC_sizedbuf:
+                    item = rpc_sizedbuf_serialise(el->data);
                     break;
                 default: break;
             }
-        } else {pre_serialise[PS_index].buf = element->data; pre_serialise[PS_index].buflen = element->length;}
-        PS_index++;
+        } else {
+            switch(el->type){
+                case RPC_number:{
+                        json_int_t json_int = 0;
+                        switch(el->length){
+                            case sizeof(uint8_t):
+                                json_int = *(uint8_t*)el->data;
+                                break;
+                            case sizeof(uint16_t):
+                                json_int = *(uint16_t*)el->data;
+                                break;
+                            case sizeof(uint32_t):
+                                json_int = *(uint32_t*)el->data;
+                                break;
+                            case sizeof(uint64_t):
+                                json_int = *(uint64_t*)el->data;
+                                break;
+                        }
+                        item = json_integer(json_int);
+                    }
+                    break;
+                case RPC_real:{
+                        double json_double = 0;
+                        switch(el->length){
+                            case sizeof(float):
+                                json_double = *(float*)el->data;
+                                break;
+                            case sizeof(double):
+                                json_double = *(double*)el->data;
+                                break;
+                        }
+                        item = json_real(json_double);
+                    }
+                    break;
+                case RPC_string:
+                    item = json_string(el->data);
+                    break;
+                default: break;
+            }
+        }
+        json_object_set_new(serialised,dupless_keys[i], item);
     }
     free(dupless_keys);
     hashtable_destroy(dupless_ht);
 
+    json_t* duplicates = json_object();
+    json_object_set_new(root,"duplicates",duplicates);
+
     for(size_t i = 0; i < dups_len; i++){
         for(size_t j = 0; j < dups[i].duplicates_len; j++){
-            pre_serialise[PS_index].type = RPC_duplicate;
-            pre_serialise[PS_index].key = dups[i].duplicates[j];
-            pre_serialise[PS_index].buf = dups[i].original_name;
-            pre_serialise[PS_index].buflen = strlen(dups[i].original_name) + 1;
-            PS_index++;
+            json_object_set_new(duplicates,dups[i].duplicates[j],json_string(dups[i].original_name));
         }
         free(dups[i].duplicates);
     }
     free(dups);
 
+    return root;
+}
+static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
+    switch(json_typeof(item)){
+        case JSON_INTEGER:
+            rpc_struct_set(rpc_struct,key, json_number_value(item));
+            break;
 
-    uint64_t u64_len = serialise_len;
-    size_t final_buflen = sizeof(uint64_t) + sizeof(RPC_STRUCT_SERIALISE_IDENT) + RPC_STRUCT_ID_SIZE;
-    for(size_t i = 0; i < serialise_len; i++){
-        final_buflen += strlen(pre_serialise[i].key) + 1; //key
-        final_buflen += 1; //type
-        final_buflen += sizeof(uint64_t); //length of payload length
-        final_buflen += pre_serialise[i].buflen; //payload length
-    }
-    char* buf = malloc(final_buflen); assert(buf);
-    char* write_buf = buf;
+        case JSON_REAL:
+            rpc_struct_set(rpc_struct, key, json_real_value(item));
+            break;
 
+        case JSON_STRING:
+            rpc_struct_set(rpc_struct,key,json_string_value(item));
+            break;
 
-    memcpy(write_buf,RPC_STRUCT_SERIALISE_IDENT,sizeof(RPC_STRUCT_SERIALISE_IDENT)); write_buf += sizeof(RPC_STRUCT_SERIALISE_IDENT);
-    memcpy(write_buf, rpc_struct->ID, sizeof(rpc_struct->ID)); write_buf += RPC_STRUCT_ID_SIZE;
+        case JSON_OBJECT:{ //using braces due to variable declaration!
+            const char* item_type = json_string_value(json_object_get(item,"type"));
 
-    memcpy(write_buf,&u64_len,sizeof(uint64_t)); write_buf += sizeof(uint64_t);
+            if(strcmp(item_type, STRINGIFY(RPC_struct)) == 0){
+                rpc_struct_set(rpc_struct, key, rpc_struct_unserialise(item));
+            } else if(strcmp(item_type, STRINGIFY(RPC_function)) == 0){
+                rpc_struct_set(rpc_struct, key, rpc_function_unserialise(item));
 
-    *buflen_output = final_buflen;
-    for(size_t i = 0; i < serialise_len; i++){
-        uint64_t u64_buflen = pre_serialise[i].buflen;
-        memcpy(write_buf,pre_serialise[i].key, strlen(pre_serialise[i].key) + 1); write_buf += (strlen(pre_serialise[i].key) + 1);
-        *write_buf = pre_serialise[i].type; write_buf++;
+            } else if(strcmp(item_type, STRINGIFY(RPC_sizedbuf)) == 0){
+                rpc_struct_set(rpc_struct, key, rpc_sizedbuf_unserialise(item));
+            }
+        }
+        break;
 
-        memcpy(write_buf,&u64_buflen,sizeof(uint64_t)); write_buf += sizeof(uint64_t);
-        memcpy(write_buf,pre_serialise[i].buf,pre_serialise[i].buflen); write_buf += pre_serialise[i].buflen;
+        case JSON_ARRAY:{
+            json_t* array_item = NULL;
+            char arr_key[sizeof(size_t) * 4];
+            size_t i = 0;
 
-        if(rpc_is_pointer(pre_serialise[i].type) && pre_serialise[i].type != RPC_string){
-            // switch(pre_serialise[i].type){
-            //     case RPC_struct:
-            //         free(pre_serialise[i].buf);
-            //         break;
-            //     case RPC_sizedbuf:
-            //         free(pre_serialise[i].buf);
-            //         break;
-            //     default: break;
-            // }
-            free(pre_serialise[i].buf);
+            rpc_struct_t arr_s = rpc_struct_create();
+            rpc_struct_set(rpc_struct, key, arr_s);
+
+            json_array_foreach(item,i,array_item){
+                sprintf(arr_key, "%zu",i);
+                item_parse(array_item,arr_s,arr_key);
+            }
         }
     }
-    free(pre_serialise);
-    return buf;
 }
-rpc_struct_t rpc_struct_unserialise(char* buf){
-    assert(buf);
-
-    if((sizeof(RPC_STRUCT_SERIALISE_IDENT) - 1 != strnlen(buf,sizeof(RPC_STRUCT_SERIALISE_IDENT)))
-        || (memcmp(buf,RPC_STRUCT_SERIALISE_IDENT,strnlen(buf,sizeof(RPC_STRUCT_SERIALISE_IDENT))) != 0)) //try to not compare outside ident string
-        return NULL;
-
-    buf += sizeof(RPC_STRUCT_SERIALISE_IDENT);
-
+rpc_struct_t rpc_struct_unserialise(json_t* json){
     rpc_struct_t new = rpc_struct_create();
 
-    char ID[RPC_STRUCT_ID_SIZE];
-    memcpy(ID,buf, RPC_STRUCT_ID_SIZE);
-    buf += RPC_STRUCT_ID_SIZE;
+    json_t* ID = json_object_get(json,"ID");
+    if(ID){
+        rpc_struct_id_set(new,(char*)json_string_value(ID));
+    }
 
-    rpc_struct_id_set(new, ID);
+    json_t* type = json_object_get(json,"type");
+    if(type == NULL || strcmp(json_string_value(type), STRINGIFY(RPC_struct)) != 0) goto bad_exit;
 
-    uint64_t u64_parse_len = 0;
-    memcpy(&u64_parse_len,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
+    json_t* data = json_object_get(json,"serialised");
+    if(data){
+        json_t* item = NULL;
+        const char* key = NULL;
+        json_object_foreach(data,key,item){
+            item_parse(item, new, (char*)key);
+        }
 
-    struct rpc_serialise_element serialise = {0};
-    for(uint64_t i = 0; i < u64_parse_len; i++){
-        serialise.key = buf; buf += strlen(serialise.key) + 1;
-        serialise.type = *buf; buf++;
+    } else goto bad_exit;
 
-        uint64_t U64_buflen = 0;
-        memcpy(&U64_buflen,buf,sizeof(uint64_t)); buf += sizeof(uint64_t);
-        serialise.buflen = U64_buflen;
+    json_t* duplicates = json_object_get(json,"duplicates");
+    if(duplicates){
+        json_t* item = NULL;
+        const char* key = NULL;
+        json_object_foreach(duplicates,key,item){
+            const char* original = json_string_value(item);
 
-        serialise.buf = buf;
+            struct rpc_container_element* original_cont = rpc_struct_get_internal(new,(char*)original);
+            assert(original_cont);
 
-        buf += serialise.buflen;
-        if(rpc_is_pointer(serialise.type) && serialise.type != RPC_string){
-            void* unserialised = NULL;
-            switch(serialise.type){
-                case RPC_struct:
-                    unserialised = rpc_struct_unserialise(serialise.buf);
-                    break;
-                case RPC_sizedbuf:
-                    unserialised = rpc_sizedbuf_unserialise(serialise.buf);
-                    break;
-                case RPC_function:
-                    unserialised = rpc_function_unserialise(serialise.buf);
-                    break;
-                default: break; //UNKNOWN TYPE, NEED TO DIE
-            }
+            struct rpc_container_element* dup_cont = malloc(sizeof(*dup_cont)); assert(dup_cont);
 
-            struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
+            *dup_cont = *original_cont;
 
-            element->data = unserialised;
-            element->type = serialise.type;
-            element->length = 0;
-
-            prec_rpc_udata udat = {
-                .name = serialise.key,
-                .origin = new,
-                .free = rpc_freefn_of(element->type),
-            };
-            prec_increment(prec_new(unserialised,rpc_struct_default_prec_cbs),&udat);
-
-            hashtable_set(new->ht,strdup(serialise.key),element);
-
-        } else if(serialise.type != RPC_duplicate){
-            struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
-
-            element->type = serialise.type;
-
-            element->data = malloc(serialise.buflen); assert(serialise.buflen);
-            memcpy(element->data,serialise.buf,serialise.buflen);
-
-            element->length = serialise.buflen;
-
-            hashtable_set(new->ht,strdup(serialise.key),element);
-        } else if(serialise.type == RPC_duplicate){
-            struct rpc_container_element* element = hashtable_get(new->ht,serialise.buf); //using buf because in buf we wrote "key" of original
-            assert(element);
-
-            struct rpc_container_element* DUP_element = malloc(sizeof(*DUP_element)); assert(DUP_element);
-            *DUP_element = *element;
-
-            prec_rpc_udata udat = {
-                .name = serialise.key,
-                .origin = new,
-                .free = rpc_freefn_of(element->type),
-            };
-            prec_increment(prec_get(element->data),&udat);
-
-            hashtable_set(new->ht,strdup(serialise.key),DUP_element);
-
+            rpc_struct_set_internal(new,(char*)key,dup_cont);
         }
     }
+
     return new;
+
+bad_exit:
+    rpc_struct_free(new);
+    return NULL;
 }
 
 #define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
