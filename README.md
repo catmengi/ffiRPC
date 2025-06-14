@@ -1,6 +1,8 @@
 # W.I.P, ffiRPC_struct partialy done.
 TASKS:
   1. Network stack
-  2. RPC client 
-  3. Internal shell for admin and debug purposes
-  4. Mailbox API
+  3. RPC client (basic connection)
+  4. libffi based function call
+  5. RPC client full
+  6. Internal shell for admin and debug purposes
+  7. Mailbox API?
