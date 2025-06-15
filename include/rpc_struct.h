@@ -104,19 +104,22 @@ void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it'
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with key "key" from rpc_struct and free it.
 
 /**
- * @brief Serializes RPC structure to binary format
+ * @brief Serializes RPC structure to json
  * @param rpc_struct Structure to serialize
- * @param buflen_output Pointer to store the resulting buffer length
- * @return Pointer to serialized data buffer
+ * @return rpc_struct serialised into json
+ * @note json is encoded in specific format because of rpc_struct's metadata like ID, and duplicates
  */
- json_t* rpc_struct_serialise(rpc_struct_t rpc_struct); //serialises rpc_struct into char*. Len will be outputed into buflen_output
+ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct);
 
  /**
-  * @brief Deserializes binary data to RPC structure
-  * @param buf Buffer with serialized data
+  * @brief Deserializes json to RPC structure
+  * @param json rpc_struct_t serialised to json
   * @return Pointer to deserialized RPC structure
+  *
+  * @warning json_decref will be automaticly called on @param json
+  * @note json is encoded in specific format because of rpc_struct's metadata like ID, and duplicates
   */
- rpc_struct_t rpc_struct_unserialise(json_t* json); //unserialise buf created with rpc_struct_serialise
+ rpc_struct_t rpc_struct_unserialise(json_t* json);
 
  /**
   * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
@@ -186,10 +189,18 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
  */
 struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key);
 
+/**
+ * @brief Increments rpc_struct's element refcount
+ * @param ptr pointer type that is inserted / was inserted to any rpc_struct_t
+*/
 void rpc_struct_increment_refcount(void* ptr);
+/**
+ * @brief Decrements rpc_struct's element refcount
+ * @param ptr pointer type that is inserted / was inserted to any rpc_struct_t
+ */
 void rpc_struct_decrement_refcount(void* ptr);
 
-char* rpc_struct_id_get(rpc_struct_t rpc_struct); //get rpc_struct's random ID
+char* rpc_struct_id_get(rpc_struct_t rpc_struct); //get rpc_struct's ID
 void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]); //sets rpc_struct's ID to particular value
 
 rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer to copy's original. NULL if not a copy

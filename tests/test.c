@@ -96,7 +96,6 @@ void check_rpc_struct_ids(){
 
     assert(strcmp(rpc_struct_id_get(ts), rpc_struct_id_get(new)) == 0);
 
-    json_decref(test);
     free(keys);
     rpc_struct_free(new);
     rpc_struct_free(ts);
@@ -146,9 +145,6 @@ void szbuf_test(){
     size_t u = 0;
     assert(strcmp(rpc_sizedbuf_getbuf(szbuf,&u),"TEST!") == 0);
     rpc_struct_free(unser);
-
-
-    json_decref(ser);
 }
 
 int main(){

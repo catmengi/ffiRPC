@@ -265,13 +265,6 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
     return 1;
 }
 
-struct rpc_serialise_element{
-    char* buf;
-    size_t buflen;
-    enum rpc_types type;
-
-    char* key;
-};
 struct rpc_struct_duplicate_info{
     enum rpc_types type;
     char* original_name;
@@ -511,11 +504,12 @@ rpc_struct_t rpc_struct_unserialise(json_t* json){
             rpc_struct_set_internal(new,(char*)key,dup_cont);
         }
     }
-
+    json_decref(json);
     return new;
 
 bad_exit:
     rpc_struct_free(new);
+    json_decref(json);
     return NULL;
 }
 
