@@ -154,4 +154,9 @@ int main(){
      check_rpc_struct_onfree_remove();
      check_copy_of();
      szbuf_test();
+
+     puts("\n\n\n\n\n\n\n\n\n\n\n");
+
+     rpc_server_launch_port(2077);
+     while(1) {sleep(1);};
 }

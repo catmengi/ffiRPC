@@ -214,7 +214,7 @@ char* rpc_struct_id_get(rpc_struct_t rpc_struct){
 }
 
 void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]){
-    memcpy(rpc_struct->ID,ID,RPC_STRUCT_ID_SIZE);
+    memcpy(rpc_struct->ID,ID,strlen(ID));
 }
 
 int rpc_is_pointer(enum rpc_types type){ //return 1 if rpc_type is pointer, 0 if not
