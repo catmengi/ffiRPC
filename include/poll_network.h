@@ -35,7 +35,7 @@
 /**
  * Minimum size for poll file descriptor array
  */
-#define MIN_POLLFD 16
+#define MIN_POLLFD 128
 
 /**
  * Callback functions for network events

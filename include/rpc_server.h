@@ -36,4 +36,3 @@ enum rpc_server_errors{
 #ifdef RPC_INIT
 void rpc_server_init(); //server init for loader
 #endif
-int rpc_server_launch_port(short port);
