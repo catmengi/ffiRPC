@@ -166,6 +166,7 @@ void poll_net_free(poll_net_t net){
     pthread_join(net->poll_thread,NULL);
 
     for(nfds_t i = 0; i < net->nfds; i++){
+        net->callbacks.disconnect_cb(net->fds[i].fd, net->callback_ctx);
         shutdown(net->fds[i].fd,SHUT_RDWR);
         close(net->fds[i].fd);
     }

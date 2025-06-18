@@ -11,6 +11,7 @@
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <threads.h>
 #include <unistd.h>
 
 #define HOLDER_MIN_ALLOC_FDS 128
@@ -20,8 +21,14 @@ static void net_accept(int fd, void* ctx);
 static void net_discon(int fd, void* ctx);
 static void net_read(int fd, void* ctx);
 
+static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER; //TODO: remove this peace of junk!
+static rpc_net_person_t* RN_persons = NULL;
+static int* RN_fds = NULL;
+static atomic_int RN_alloced_personsfd = 0;;
+
 struct _rpc_net_person{
-    rpc_struct_t userdata;
+    rpc_struct_t persondata;
+
     struct sc_queue_ptr request_que;
 
     int fd; //TODO: windows
@@ -30,11 +37,6 @@ struct _rpc_net_person{
 struct _rpc_net_holder{
     poll_net_t poll_net; //TODO: windows
     rpc_net_notifier_callback notify;
-
-    rpc_net_person_t* persons;
-    int* fds;
-
-    int alloced_personsfd;
 };
 
 rpc_net_holder_t rpc_net_holder_create(rpc_net_notifier_callback notifier){
@@ -50,11 +52,14 @@ rpc_net_holder_t rpc_net_holder_create(rpc_net_notifier_callback notifier){
     holder->poll_net = poll_net_init(cbs, holder);
     holder->notify = notifier;
 
-    holder->alloced_personsfd = HOLDER_MIN_ALLOC_FDS;
-    holder->fds = malloc(sizeof(*holder->fds) * holder->alloced_personsfd); assert(holder->fds);
-    holder->persons = malloc(sizeof(*holder->persons) *holder->alloced_personsfd); assert(holder->persons);
-
     return holder;
+}
+
+void rpc_net_holder_free(rpc_net_holder_t holder){
+    if(holder){
+        poll_net_free(holder->poll_net);
+        free(holder);
+    }
 }
 
 void rpc_net_holder_accept_on(rpc_net_holder_t holder, int accept_fd){
@@ -83,15 +88,19 @@ int create_tcp_listenfd(short port){
 }
 
 static void make_personsfd_bigger(rpc_net_holder_t holder, int to){
-    if(to >= holder->alloced_personsfd){  //TODO: proper alloc
-        int prev_s = holder->alloced_personsfd;
-        holder->alloced_personsfd += HOLDER_MIN_ALLOC_FDS;
-        assert((holder->fds = realloc(holder->fds, holder->alloced_personsfd * sizeof(*holder->fds))));
-        assert((holder->persons = realloc(holder->persons, holder->alloced_personsfd * sizeof(*holder->persons))));
+    pthread_mutex_lock(&global_lock);
 
-        memset(&holder->fds[prev_s],0,holder->alloced_personsfd - prev_s * sizeof(holder->fds));
-        memset(&holder->persons[prev_s],0,holder->alloced_personsfd - prev_s * sizeof(holder->persons));
+    if(to >= RN_alloced_personsfd){  //TODO: proper alloc
+        int prev_s = RN_alloced_personsfd;
+        RN_alloced_personsfd += HOLDER_MIN_ALLOC_FDS;
+        assert((RN_fds = realloc(RN_fds, RN_alloced_personsfd * sizeof(*RN_fds))));
+        assert((RN_persons = realloc(RN_persons, RN_alloced_personsfd * sizeof(*RN_persons))));
+
+        memset(&RN_fds[prev_s],0,RN_alloced_personsfd - prev_s * sizeof(RN_fds));
+        memset(&RN_persons[prev_s],0,RN_alloced_personsfd - prev_s * sizeof(RN_persons));
     }
+
+    pthread_mutex_unlock(&global_lock);
 }
 
 static void net_accept(int fd, void* ctx){
@@ -99,36 +108,45 @@ static void net_accept(int fd, void* ctx){
 
     make_personsfd_bigger(holder,fd); //it have internal check of size, dont worry!
 
-    holder->fds[fd] = fd;
+    pthread_mutex_lock(&global_lock);
 
-    holder->persons[fd] = malloc(sizeof(*holder->persons[0])); assert(holder->persons[fd]);
+    RN_fds[fd] = fd;
+    RN_persons[fd] = malloc(sizeof(*RN_persons[0])); assert(RN_persons[fd]);
+    RN_persons[fd]->fd = fd;
+    RN_persons[fd]->persondata = rpc_struct_create();
+    sc_queue_init(&RN_persons[fd]->request_que);
 
-    holder->persons[fd]->fd = fd;
-    holder->persons[fd]->userdata = rpc_struct_create();
-    sc_queue_init(&holder->persons[fd]->request_que);
+    if(holder->notify.persondata_init) holder->notify.persondata_init(RN_persons[fd], holder->notify.userdata);
+
+    pthread_mutex_unlock(&global_lock);
 }
 
 static void net_discon(int fd, void* ctx){
     rpc_net_holder_t holder = ctx;
 
-    holder->fds[fd] = 0;
+    pthread_mutex_lock(&global_lock);
+    RN_fds[fd] = 0;
+    if(RN_persons[fd]){
+        RN_persons[fd]->fd = 0;
+        for(size_t i = 0; i < rpc_net_person_request_ammount(RN_persons[fd]); i++){
+            rpc_struct_free(sc_queue_del_first(&RN_persons[fd]->request_que));
+        }
+        sc_queue_term(&RN_persons[fd]->request_que);
+        rpc_struct_free(RN_persons[fd]->persondata);
 
-    if(holder->persons[fd]){
-        holder->persons[fd]->fd = 0;
-        sc_queue_term(&holder->persons[fd]->request_que);
-        rpc_struct_free(holder->persons[fd]->userdata);
-
-        free(holder->persons[fd]);
-        holder->persons[fd] = NULL;
+        free(RN_persons[fd]);
+        RN_persons[fd] = NULL;
     }
+    pthread_mutex_unlock(&global_lock);
 }
 
 static void net_read(int fd, void* ctx){
     rpc_net_holder_t holder = ctx;
 
-    assert(holder->persons[fd]); //ASSERT!
+    pthread_mutex_lock(&global_lock);
 
-    rpc_net_person_t person = holder->persons[fd];
+    assert(RN_persons[fd]); //ASSERT!
+    rpc_net_person_t person = RN_persons[fd];
 
     rpc_struct_t req = rpc_struct_unserialise(json_loadfd(fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY, NULL)); //TODO: callback based read to use encryption and compression
     if(req){
@@ -136,6 +154,7 @@ static void net_read(int fd, void* ctx){
         if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
     } else {shutdown(fd, SHUT_RDWR); close(fd);}
 
+    pthread_mutex_unlock(&global_lock);
 
 }
 
@@ -150,15 +169,25 @@ int rpc_net_send(int fd, rpc_struct_t tosend){
 }
 
 rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person){
-    return person == NULL ? NULL : sc_queue_del_first(&person->request_que);
+
+    rpc_struct_t request = NULL;
+    if(person && rpc_net_person_request_ammount(person) > 0){
+        request = sc_queue_del_first(&person->request_que);
+    }
+
+    return request;
 }
-rpc_struct_t rpc_net_person_userdata(rpc_net_person_t person){
-    return person == NULL ? NULL : person->userdata;
+rpc_struct_t rpc_net_persondata(rpc_net_person_t person){
+    return person == NULL ? NULL : person->persondata;
 }
 size_t rpc_net_person_request_ammount(rpc_net_person_t person){
     assert(person);
     return sc_queue_size(&person->request_que);
 }
 int rpc_net_person_fd(rpc_net_person_t person){
-    return person == NULL ? -1 : person->fd;
+    assert(person);
+
+    int fd = person->fd;
+
+    return fd;
 }

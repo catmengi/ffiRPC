@@ -148,14 +148,6 @@ void szbuf_test(){
     rpc_struct_free(unser);
 }
 
-void notify(rpc_net_person_t person, void* userdata){
-    printf("TEST! ALARM!");
-
-    int fd = rpc_net_person_fd(person);
-    rpc_net_send(fd, rpc_struct_create());
-}
-
-
 int main(){
      rpc_init();
 
@@ -164,13 +156,9 @@ int main(){
      check_copy_of();
      szbuf_test();
 
-     rpc_net_notifier_callback cb = {
-         .notify = notify,
-         .userdata = NULL,
-     };
-     rpc_net_holder_t holder = rpc_net_holder_create(cb);
-     rpc_net_holder_accept_on(holder,create_tcp_listenfd(2077));
+     assert(rpc_server_launch_port(2077) == 0);
 
-     int timer = 30;
-     while(timer-- > 0) sleep(1);
+     getchar();
+
+     rpc_server_stop_port(2077);
 }
