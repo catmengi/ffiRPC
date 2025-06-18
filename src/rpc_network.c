@@ -62,6 +62,7 @@ void rpc_net_holder_accept_on(rpc_net_holder_t holder, int accept_fd){
 }
 
 void rpc_net_holder_add_fd(rpc_net_holder_t holder, int fd){
+    poll_net_add_fd(holder->poll_net,fd);
     net_accept(fd, holder); //why not?
 }
 
@@ -81,7 +82,7 @@ int create_tcp_listenfd(short port){
     return sockfd;
 }
 
-inline static void make_personsfd_bigger(rpc_net_holder_t holder, int to){
+static void make_personsfd_bigger(rpc_net_holder_t holder, int to){
     if(to >= holder->alloced_personsfd){  //TODO: proper alloc
         int prev_s = holder->alloced_personsfd;
         holder->alloced_personsfd += HOLDER_MIN_ALLOC_FDS;
