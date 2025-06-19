@@ -23,7 +23,6 @@ static void net_read(int fd, void* ctx);
 
 static pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER; //TODO: remove this peace of junk!
 static rpc_net_person_t* RN_persons = NULL;
-static int* RN_fds = NULL;
 static atomic_int RN_alloced_personsfd = 0;;
 
 struct _rpc_net_person{
@@ -93,10 +92,8 @@ static void make_personsfd_bigger(rpc_net_holder_t holder, int to){
     if(to >= RN_alloced_personsfd){  //TODO: proper alloc
         int prev_s = RN_alloced_personsfd;
         RN_alloced_personsfd += HOLDER_MIN_ALLOC_FDS;
-        assert((RN_fds = realloc(RN_fds, RN_alloced_personsfd * sizeof(*RN_fds))));
         assert((RN_persons = realloc(RN_persons, RN_alloced_personsfd * sizeof(*RN_persons))));
 
-        memset(&RN_fds[prev_s],0,RN_alloced_personsfd - prev_s * sizeof(RN_fds));
         memset(&RN_persons[prev_s],0,RN_alloced_personsfd - prev_s * sizeof(RN_persons));
     }
 
@@ -110,7 +107,6 @@ static void net_accept(int fd, void* ctx){
 
     pthread_mutex_lock(&global_lock);
 
-    RN_fds[fd] = fd;
     RN_persons[fd] = malloc(sizeof(*RN_persons[0])); assert(RN_persons[fd]);
     RN_persons[fd]->fd = fd;
     RN_persons[fd]->persondata = rpc_struct_create();
@@ -125,7 +121,6 @@ static void net_discon(int fd, void* ctx){
     rpc_net_holder_t holder = ctx;
 
     pthread_mutex_lock(&global_lock);
-    RN_fds[fd] = 0;
     if(RN_persons[fd]){
         RN_persons[fd]->fd = 0;
         for(size_t i = 0; i < rpc_net_person_request_ammount(RN_persons[fd]); i++){
