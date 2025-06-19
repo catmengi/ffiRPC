@@ -30,6 +30,7 @@
 #include "../include/sc_queue.h"
 
 #include <jansson.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <assert.h>
@@ -43,6 +44,8 @@ static char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 struct _rpc_struct{
     hashtable* ht;
+    pthread_mutex_t lock;
+
     char ID[RPC_STRUCT_ID_SIZE];
 
     rpc_struct_t copyof;
@@ -68,6 +71,7 @@ typedef struct{
 typedef struct{
     hashtable* keys;
     rpc_struct_free_cb free;
+    pthread_mutex_t lock;
 }rpc_struct_prec_ptr_ctx;
 
 static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
@@ -86,6 +90,8 @@ rpc_struct_t rpc_struct_create(void){
         rpc_struct->ID[i] = ID_alphabet[rpc_struct->ID[i] % (sizeof(ID_alphabet) - 1)];
     }
 
+    pthread_mutex_init(&rpc_struct->lock,NULL);
+
     rpc_struct->copyof = NULL;
     rpc_struct->manual_destructor = NULL;
 
@@ -102,6 +108,7 @@ void rpc_struct_add_destructor(rpc_struct_t rpc_struct, rpc_struct_destructor ma
 static void rpc_struct_onzero_cb(prec_t prec){
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
     if(ptr_ctx){
+        pthread_mutex_lock(&ptr_ctx->lock);
         char** keys = hashtable_get_keys(ptr_ctx->keys);
         size_t length = ptr_ctx->keys->size;
         for(size_t i = 0; i < length; i++){
@@ -121,6 +128,8 @@ static void rpc_struct_onzero_cb(prec_t prec){
         if(ptr_ctx->free) ptr_ctx->free(prec_ptr(prec));
 
         hashtable_destroy(ptr_ctx->keys);
+        pthread_mutex_unlock(&ptr_ctx->lock);
+        pthread_mutex_destroy(&ptr_ctx->lock);
         free(ptr_ctx);
     }
 }
@@ -130,11 +139,15 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
         if(ptr_ctx == NULL){
             ptr_ctx = malloc(sizeof(*ptr_ctx)); assert(ptr_ctx);
+
             ptr_ctx->keys = hashtable_create();
             ptr_ctx->free = udat->free;
+            pthread_mutex_init(&ptr_ctx->lock,NULL);
+
             prec_context_set(prec,ptr_ctx);
         }
 
+        pthread_mutex_lock(&ptr_ctx->lock);
         rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
         if(ctx == NULL){
             ctx = malloc(sizeof(*ctx)); assert(ctx);
@@ -148,12 +161,14 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
         if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
         ctx->origins[index] = udat->origin;
+        pthread_mutex_unlock(&ptr_ctx->lock);
     }
 }
 static void rpc_struct_decrement_cb(prec_t prec, void* udata){
     if(udata){
         rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
         if(ptr_ctx){
+            pthread_mutex_lock(&ptr_ctx->lock);
             prec_rpc_udata* udat = udata;
             rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
             if(ctx){
@@ -175,6 +190,7 @@ static void rpc_struct_decrement_cb(prec_t prec, void* udata){
                     free(ctx);
                 }
             }
+            pthread_mutex_unlock(&ptr_ctx->lock);
         }
     }
 }
@@ -190,6 +206,7 @@ static struct prec_callbacks rpc_struct_default_prec_cbs = {
 static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
     if(rpc_struct){
         if(rpc_struct->manual_destructor) rpc_struct->manual_destructor(rpc_struct);
+
         for(size_t i = 0; i < rpc_struct->ht->capacity; i++){
             if(rpc_struct->ht->body[i].key != NULL && rpc_struct->ht->body[i].key != (char*)0xDEAD){
                 rpc_struct_remove(rpc_struct,rpc_struct->ht->body[i].key);
@@ -254,10 +271,12 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
                 prec_decrement(prec_get(element->data),&udat);
             } else if(element->type == RPC_string || !rpc_is_pointer(element->type)) free(element->data);
 
+            pthread_mutex_lock(&rpc_struct->lock);
             char* kfree = rpc_struct->ht->body[hashtable_find_slot(rpc_struct->ht,key)].key;
             hashtable_remove(rpc_struct->ht,key);
             free(kfree);
             free(element);
+            pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
         }
         return 1;
@@ -265,7 +284,8 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
     return 1;
 }
 
-struct rpc_struct_duplicate_info{
+
+struct rpc_struct_duplicate_info {
     enum rpc_types type;
     char* original_name;
 
@@ -273,43 +293,82 @@ struct rpc_struct_duplicate_info{
     char** duplicates;
 };
 
-struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output){
-    prec_t* all = prec_get_all(len_output);
-    struct rpc_struct_duplicate_info* duplicates = NULL;
+struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output) {
+    assert(rpc_struct);
+    *len_output = 0;
+    pthread_mutex_lock(&rpc_struct->lock);
 
-    if(*len_output > 0){
-        duplicates = calloc(*len_output,sizeof(*duplicates)); assert(duplicates);
-        char** keys = rpc_struct_keys(rpc_struct);
+    size_t length = rpc_struct_length(rpc_struct);
+    char** keys = rpc_struct_keys(rpc_struct);
+    if (!keys) {pthread_mutex_unlock(&rpc_struct->lock);return NULL;}
 
-        for(size_t i = 0; i < *len_output; i++){
-            //STEP 1: find first name with matching ptr
-            for(size_t j = 0; j < rpc_struct_length(rpc_struct); j++){
-                struct rpc_container_element* element = hashtable_get(rpc_struct->ht,keys[j]);
-                if(element->data == prec_ptr(all[i])){
-                    if(duplicates[i].original_name == NULL){
-                        duplicates[i].original_name = keys[j];
-                        duplicates[i].type = element->type;
-                    } else duplicates[i].duplicates_len++;
+    // Создаём хеш-таблицу: ключ — указатель (void*), значение — struct rpc_struct_duplicate_info*
+    hashtable* ptr_map = hashtable_create();
+    assert(ptr_map);
+
+    // Динамический массив для результата
+    size_t capacity = 16;
+    struct rpc_struct_duplicate_info* duplicates = malloc(capacity * sizeof(*duplicates));
+    assert(duplicates);
+    size_t count = 0;
+
+    for (size_t i = 0; i < length; i++) {
+        struct rpc_container_element* element = hashtable_get(rpc_struct->ht, keys[i]);
+        if (!element) continue;
+
+        char ptr_str[sizeof(void*) * 4];
+        sprintf(ptr_str, "%p", element->data);
+
+        if (rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown) {
+            // Ищем ptr в ptr_map
+            struct rpc_struct_duplicate_info* info = hashtable_get(ptr_map, ptr_str);
+            if (info == NULL) {
+                // Новый объект — расширяем массив при необходимости
+                if (count == capacity) {
+                    capacity *= 2;
+                    duplicates = realloc(duplicates, capacity * sizeof(*duplicates));
+                    assert(duplicates);
                 }
-            }
+                // Инициализируем info
+                info = &duplicates[count++];
+                info->type = element->type;
+                info->original_name = keys[i];
+                info->duplicates_len = 0;
+                info->duplicates = NULL;
 
-            //STEP 2: find duplicates now
-            size_t DI = 0;
-            duplicates[i].duplicates = calloc(duplicates[i].duplicates_len, sizeof(char*)); assert(duplicates[i].duplicates);
-            for(size_t j = 0; j < rpc_struct_length(rpc_struct); j++){
-                struct rpc_container_element* element = hashtable_get(rpc_struct->ht,keys[j]);
-                if(element->data == prec_ptr(all[i])){
-                    if(strcmp(duplicates[i].original_name,keys[j]) != 0){
-                        duplicates[i].duplicates[DI++] = keys[j];
-                    }
-                }
+                // Добавляем в хеш-таблицу
+                hashtable_set(ptr_map, strdup(ptr_str), info);
+            } else {
+                // Добавляем ключ в duplicates
+                size_t new_len = info->duplicates_len + 1;
+                info->duplicates = realloc(info->duplicates, new_len * sizeof(char*));
+                assert(info->duplicates);
+                info->duplicates[info->duplicates_len] = keys[i];
+                info->duplicates_len = new_len;
             }
         }
-        free(keys);
     }
-    free(all);
+
+    char** ptr_map_keys = hashtable_get_keys(ptr_map);
+    for(size_t i = 0; i <ptr_map->size; i++){
+        free(ptr_map_keys[i]);
+    }
+    free(ptr_map_keys);
+    hashtable_destroy(ptr_map);
+
+    free(keys);
+
+    if (count == 0) {
+        free(duplicates);
+        pthread_mutex_unlock(&rpc_struct->lock);
+        return NULL;
+    }
+
+    *len_output = count;
+    pthread_mutex_unlock(&rpc_struct->lock);
     return duplicates;
 }
+
 
 #define STRINGIFY(x) #x
 json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
@@ -415,7 +474,8 @@ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
 
     for(size_t i = 0; i < dups_len; i++){
         for(size_t j = 0; j < dups[i].duplicates_len; j++){
-            json_object_set_new(duplicates,dups[i].duplicates[j],json_string(dups[i].original_name));
+            if(dups[i].duplicates[j])
+                json_object_set_new(duplicates,dups[i].duplicates[j],json_string(dups[i].original_name));
         }
         free(dups[i].duplicates);
     }
@@ -426,7 +486,7 @@ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
 static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
     switch(json_typeof(item)){
         case JSON_INTEGER:
-            rpc_struct_set(rpc_struct,key, json_number_value(item));
+            rpc_struct_set(rpc_struct,key, (uint64_t)json_integer_value(item));
             break;
 
         case JSON_REAL:
@@ -434,7 +494,7 @@ static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
             break;
 
         case JSON_STRING:
-            rpc_struct_set(rpc_struct,key,json_string_value(item));
+            rpc_struct_set(rpc_struct,key,(char*)json_string_value(item));
             break;
 
         case JSON_OBJECT:{ //using braces due to variable declaration!
@@ -444,10 +504,9 @@ static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
                 rpc_struct_set(rpc_struct, key, rpc_struct_unserialise(item));
             } else if(strcmp(item_type, STRINGIFY(RPC_function)) == 0){
                 rpc_struct_set(rpc_struct, key, rpc_function_unserialise(item));
-
             } else if(strcmp(item_type, STRINGIFY(RPC_sizedbuf)) == 0){
                 rpc_struct_set(rpc_struct, key, rpc_sizedbuf_unserialise(item));
-            }
+            } else return;
         }
         break;
 
@@ -504,18 +563,17 @@ rpc_struct_t rpc_struct_unserialise(json_t* json){
             rpc_struct_set_internal(new,(char*)key,dup_cont);
         }
     }
-    json_decref(json);
     return new;
 
 bad_exit:
     rpc_struct_free(new);
-    json_decref(json);
     return NULL;
 }
 
 #define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
 
 rpc_struct_t rpc_struct_copy(rpc_struct_t original){
+    pthread_mutex_lock(&original->lock);
     rpc_struct_t copy = rpc_struct_create();
 
     copy->ht->capacity = original->ht->capacity;
@@ -544,6 +602,7 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
         }
     }
     copy->copyof = original;
+    pthread_mutex_unlock(&original->lock);
     return copy;
 }
 
@@ -582,6 +641,7 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
     if(element->data == NULL) {free(element); return 1;}
 
     if(hashtable_get(rpc_struct->ht,key) == NULL){
+        pthread_mutex_lock(&rpc_struct->lock);
         if(element->type == RPC_string){
             element->data = strdup(element->data); assert(element->data);
             element->length = strlen(element->data) + 1;
@@ -598,13 +658,14 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
             prec_increment(prec,&udat);
         }
         hashtable_set(rpc_struct->ht,strdup(key),element);
+        pthread_mutex_unlock(&rpc_struct->lock);
         return 0;
     }
     return 1;
 }
 
 struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
-    return hashtable_get(rpc_struct->ht,key);
+    return rpc_struct != NULL ? hashtable_get(rpc_struct->ht,key) : NULL;
 }
 
 void rpc_struct_increment_refcount(void* ptr){
@@ -620,6 +681,7 @@ void rpc_struct_decrement_refcount(void* ptr){
 
 uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
     uint64_t hash = 0;
+    pthread_mutex_lock(&rpc_struct->lock);
     char** keys = rpc_struct_keys(rpc_struct);
     for(size_t i = 0; i < rpc_struct_length(rpc_struct); i++){
         struct rpc_container_element* element = hashtable_get(rpc_struct->ht,keys[i]);
@@ -639,5 +701,6 @@ uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
         hash = murmur((uint8_t*)&new_hash,sizeof(new_hash));
     }
     free(keys);
+    pthread_mutex_unlock(&rpc_struct->lock);
     return hash;
 }

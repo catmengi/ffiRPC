@@ -13,6 +13,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include <signal.h>
+
 void check_rpc_struct_onfree_remove(){
     rpc_struct_t t = rpc_struct_create();
     rpc_struct_t c = rpc_struct_create();
@@ -101,6 +103,8 @@ void check_rpc_struct_ids(){
     rpc_struct_free(new);
     rpc_struct_free(ts);
     free(str);
+
+    json_decref(test);
 }
 
 void check_copy_of(){
@@ -146,19 +150,96 @@ void szbuf_test(){
     size_t u = 0;
     assert(strcmp(rpc_sizedbuf_getbuf(szbuf,&u),"TEST!") == 0);
     rpc_struct_free(unser);
+
+    json_decref(ser);
+}
+
+void test_call_fn(char* str, unsigned char t){
+    assert(t == 221);
+    rpc_struct_t lobject = rpc_object_get_local();
+    assert(lobject);
+    puts(str);
+}
+
+void call_test(){
+    rpc_struct_t cobj = rpc_struct_create();
+
+    rpc_function_t fn = rpc_function_create();
+    rpc_function_set_return_type(fn,RPC_none);
+    rpc_function_set_prototype(fn,(enum rpc_types[]){RPC_string,RPC_number},2);
+    rpc_function_set_fnptr(fn, test_call_fn);
+
+    rpc_struct_set(cobj, "puts",fn);
+
+    rpc_object_load_locals(rpc_struct_create());
+    rpc_cobject_add("console", cobj);
+
+    rpc_struct_t params = rpc_struct_create();
+    rpc_struct_set(params, "0", (char*)"\n\tif ffi is okay it should put out this line into system's console\t\n");
+    rpc_struct_set(params, "1", (uint64_t)221);
+
+    rpc_struct_t ret = rpc_struct_create();
+
+    int debug = rpc_cobject_call(rpc_cobject_get("console"),"puts",params,ret);
+
+    // rpc_cobject_remove("console");
+
+    rpc_struct_free(params);
+    rpc_struct_free(ret);
+
+    assert(debug == 0);
+}
+
+void network_test_client_less(int sock){ //TODO: client
+
+    rpc_struct_t sreq = rpc_struct_create();
+
+    rpc_struct_set(sreq, "method", (char*)"call");
+
+    rpc_struct_t req = rpc_struct_create();
+
+    rpc_struct_set(req, "object", (char*)"console");
+    rpc_struct_set(req, "function", (char*)"puts");
+
+    rpc_struct_t params = rpc_struct_create();
+    rpc_struct_set(params, "0", (char*)"\n\tif ffi and rpc server is okay it should put out this line into system's console\t\n");
+    rpc_struct_set(params, "1", (uint64_t)221);
+
+    rpc_struct_set(req, "params", params);
+    rpc_struct_set(sreq, "params", req);
+
+    rpc_net_send(sock,sreq);
+}
+
+void client_test(){
+    int sock = socket(AF_INET,SOCK_STREAM,0);
+    struct sockaddr_in addr = {
+        .sin_addr.s_addr = inet_addr("127.0.0.1"),
+        .sin_family = AF_INET,
+        .sin_port = htons(2077),
+    };
+    assert(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) == 0);
+
+    for(int i = 0; i < 1000 * 8; i++){
+        network_test_client_less(sock);
+    }
+    shutdown(sock,SHUT_RDWR);
+    close(sock);
 }
 
 int main(){
+     signal(SIGPIPE, SIG_IGN);
      rpc_init();
 
      check_rpc_struct_ids();
      check_rpc_struct_onfree_remove();
      check_copy_of();
      szbuf_test();
+     call_test();
 
-     assert(rpc_server_launch_port(2077) == 0);
+      assert(rpc_server_launch_port(2077) == 0);
+      client_test();
+      getchar();
 
-     getchar();
-
-     rpc_server_stop_port(2077);
+      rpc_server_stop_port(2077);
 }

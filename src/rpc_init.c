@@ -3,6 +3,7 @@
 
 #include "../include/rpc_thread_context.h"
 #include "../include/rpc_server.h"
+#include "../include/rpc_object.h"
 
 #include <assert.h>
 #include <sys/types.h>
@@ -62,7 +63,8 @@ void rpc_service_load(rpc_struct_t load,char* service_name){
 
 void rpc_service_load_all(rpc_struct_t load){
     char** keys = rpc_struct_keys(load);
-    for(size_t i = 0; i < rpc_struct_length(load); i++){
+    size_t services = rpc_struct_length(load);
+    for(size_t i = 0; i < services; i++){
         rpc_service_load(load,keys[i]);
     }
     free(keys);
@@ -70,10 +72,11 @@ void rpc_service_load_all(rpc_struct_t load){
 
 //========== RPC_init ==========
 
-static char* rpc_server_dependecies[] = {"rpc_thread_context"};
+static char* rpc_server_dependecies[] = {"rpc_object","rpc_thread_context"};
 
 static rpc_service_t init_rpc_modules[] = {
     {.name = "rpc_thread_context", .dependecies = NULL, .dependecies_len = 0, .init_handler = rpc_init_thread_context},
+    {.name = "rpc_object", .dependecies = NULL, .dependecies_len = 0, .init_handler = rpc_object_init},
     {.name = "rpc_server", .dependecies = rpc_server_dependecies, .dependecies_len = sizeof(rpc_server_dependecies) / sizeof(rpc_server_dependecies[0]), .init_handler = rpc_server_init},
 };
 

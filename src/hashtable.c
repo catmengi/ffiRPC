@@ -199,6 +199,7 @@ void hashtable_destroy(hashtable* t)
  * Get keys from hashtable. This does not copy the keys
 */
 char** hashtable_get_keys(hashtable* t){
+	pthread_mutex_lock(&t->lock);
 	char** keys = malloc(t->size * sizeof(char*)); assert(keys);
 	unsigned int k = 0;
 
@@ -207,12 +208,14 @@ char** hashtable_get_keys(hashtable* t){
 			keys[k++] = t->body[i].key;
 		}
 	}
+	pthread_mutex_unlock(&t->lock);
 	return keys;
 
 }
 
 void** hashtable_get_values(hashtable* t){
 	void** values = NULL;
+	pthread_mutex_lock(&t->lock);
 	if(t->size > 0){
 		values = malloc(t->size * sizeof(void*)); assert(values);
 
@@ -223,6 +226,7 @@ void** hashtable_get_values(hashtable* t){
 			}
 		}
 	}
+	pthread_mutex_unlock(&t->lock);
 	return values;
 }
 

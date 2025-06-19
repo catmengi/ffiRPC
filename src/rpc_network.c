@@ -148,11 +148,15 @@ static void net_read(int fd, void* ctx){
     assert(RN_persons[fd]); //ASSERT!
     rpc_net_person_t person = RN_persons[fd];
 
-    rpc_struct_t req = rpc_struct_unserialise(json_loadfd(fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY, NULL)); //TODO: callback based read to use encryption and compression
+    json_t* req_json = json_loadfd(fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY, NULL);
+
+    rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
     if(req){
         sc_queue_add_last(&person->request_que,req);
         if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
     } else {shutdown(fd, SHUT_RDWR); close(fd);}
+
+    json_decref(req_json);
 
     pthread_mutex_unlock(&global_lock);
 

@@ -25,6 +25,7 @@
 
 #include "rpc_thread_context.h"
 #include "rpc_struct.h"
+#include "rpc_object.h"
 
 enum rpc_server_errors{
     ERR_RPC_OK,
