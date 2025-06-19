@@ -13,6 +13,8 @@ set(SRC
     ${SRC_DIR}/rpc_init.c
     ${SRC_DIR}/poll_network.c
     ${SRC_DIR}/rpc_server.c
+    ${SRC_DIR}/rpc_network.c
+    ${SRC_DIR}/rpc_object.c
     ${SRC_DIR}/rpc_sizedbuf.c 
     ${SRC_DIR}/rpc_function.c
     ${SRC_DIR}/rpc_struct.c
