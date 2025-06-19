@@ -293,6 +293,7 @@ struct rpc_struct_duplicate_info {
     char** duplicates;
 };
 
+//THIS CODE WAS HUGGELY REFACTORED VIA AI, IF YOU FIND BUG IN IT, REPORT IMMEDIATLY!
 struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output) {
     assert(rpc_struct);
     *len_output = 0;
@@ -368,7 +369,7 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     pthread_mutex_unlock(&rpc_struct->lock);
     return duplicates;
 }
-
+//==========================================================================
 
 #define STRINGIFY(x) #x
 json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){

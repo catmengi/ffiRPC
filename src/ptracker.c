@@ -87,11 +87,3 @@ void prec_context_set(prec_t prec, void* context){
 void* prec_ptr(prec_t prec){
     return (prec != NULL ? prec->ptr : NULL);
 }
-
-prec_t* prec_get_all(size_t* size_out){
-    assert(size_out);
-    if(ptracker){
-        *size_out = ptracker->size;
-        return (prec_t*)hashtable_get_values(ptracker);
-    }else {*size_out = 0; return NULL;}
-}

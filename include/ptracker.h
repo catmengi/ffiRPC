@@ -18,4 +18,3 @@ int prec_refcount(prec_t prec);
 void* prec_context_get(prec_t prec);
 void prec_context_set(prec_t prec, void* context);
 void* prec_ptr(prec_t prec);
-prec_t* prec_get_all(size_t* size_out);
