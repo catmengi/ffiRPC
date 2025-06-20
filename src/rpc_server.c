@@ -29,7 +29,6 @@
 #include "../include/rpc_network.h"
 #include "../include/C-Thread-Pool/thpool.h"
 
-#include <bits/pthreadtypes.h>
 #include <pthread.h>
 #include <sys/socket.h>
 
