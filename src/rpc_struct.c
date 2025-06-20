@@ -121,6 +121,7 @@ static void rpc_struct_onzero_cb(prec_t prec){
         if(ptr_ctx->free) ptr_ctx->free(prec_ptr(prec));
 
         hashtable_destroy(ptr_ctx->keys);
+        prec_context_set(prec, NULL);
         pthread_mutex_unlock(&ptr_ctx->lock);
         pthread_mutex_destroy(&ptr_ctx->lock);
         free(ptr_ctx);

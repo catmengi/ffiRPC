@@ -41,6 +41,8 @@ void rpc_net_holder_free(rpc_net_holder_t holder);
 
 void rpc_net_holder_accept_on(rpc_net_holder_t holder, int accept_fd);
 void rpc_net_holder_add_fd(rpc_net_holder_t holder, int fd);
+rpc_net_notifier_callback rpc_net_holder_get_notify(rpc_net_holder_t holder);
+
 int create_tcp_listenfd(short port);
 
 int rpc_net_send(int fd, rpc_struct_t tosend);

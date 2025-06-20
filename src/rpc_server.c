@@ -29,6 +29,8 @@
 #include "../include/rpc_network.h"
 #include "../include/C-Thread-Pool/thpool.h"
 
+#include <bits/pthreadtypes.h>
+#include <pthread.h>
 #include <sys/socket.h>
 
 #include <unistd.h>
@@ -104,11 +106,13 @@ int rpc_server_launch_port(short port){
 
     if(rpc_struct_exist(RS_netports,acc)) return 1; //port already launched!!!
 
+    pthread_mutex_t* sync_mutex = malloc(sizeof(*sync_mutex)); assert(sync_mutex);
+    pthread_mutex_init(sync_mutex,NULL);
     rpc_net_notifier_callback notify = {
         .notify = message_receiver,
         .persondata_init = persondata_init,
         .persondata_destroy = persondata_destroy,
-        .userdata = NULL,
+        .userdata = sync_mutex,
     };
 
     rpc_net_holder_t net_port = rpc_net_holder_create(notify);
@@ -128,7 +132,10 @@ int rpc_server_stop_port(short port){
         assert(rpc_struct_get(RS_netports, acc, net_port) == 0);
         assert(rpc_struct_remove(RS_netports,acc) == 0);
 
+        pthread_mutex_t* sync_mutex = rpc_net_holder_get_notify(net_port).userdata;
         rpc_net_holder_free(net_port);
+        pthread_mutex_destroy(sync_mutex);
+        free(sync_mutex);
 
         return 0;
     } else return 1;
@@ -137,6 +144,7 @@ int rpc_server_stop_port(short port){
 static void message_receiver(rpc_net_person_t person, void* userdata){ //retrive request from request queue and launch them into threadpool
     size_t jobs = rpc_net_person_request_ammount(person);
 
+    pthread_mutex_lock(userdata);
     for(size_t i = 0; i < jobs; i++){
         time_logger("%s received %zu jobs! \n", __PRETTY_FUNCTION__, jobs);
 
@@ -157,6 +165,7 @@ static void message_receiver(rpc_net_person_t person, void* userdata){ //retrive
         printf("\t");
         time_logger("job %zu was succesfully added!\n",i);
     }
+    pthread_mutex_unlock(userdata);
 }
 static void persondata_init(rpc_net_person_t person, void* userdata){
     rpc_struct_t persondata = rpc_struct_create();
@@ -167,7 +176,10 @@ static void persondata_init(rpc_net_person_t person, void* userdata){
     assert(rpc_struct_set(RS_persondata, rpc_net_person_id(person), persondata) == 0);
 }
 static void persondata_destroy(rpc_net_person_t person, void* userdata){
+    pthread_mutex_lock(userdata);
+    thpool_wait(RS_thpool);
     rpc_struct_remove(RS_persondata, rpc_net_person_id(person));
+    pthread_mutex_unlock(userdata);
 }
 
 static void net_job(void* arg_p){ //handles network requests! Works from threadpool
@@ -202,7 +214,7 @@ static void net_job(void* arg_p){ //handles network requests! Works from threadp
 error:
     rpc_struct_free(job_info);
     time_logger("bad request from client!\n");
-    if(rpc_net_send(fd,reply) != 0) rpc_struct_free(reply);
+    rpc_net_send(fd,reply);
 error_shut:
     time_logger("connection shuted down!\n");
     shutdown(fd,SHUT_RDWR);
@@ -237,12 +249,9 @@ static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
         switch(err){
             case ERR_RPC_DOESNT_EXIST:
                 str_err = "ERR_RPC_DOESNT_EXIST";
-                puts(str_err);
                 break;
             case ERR_RPC_PROTOTYPE_DIFFERENT:
                 str_err = "ERR_RPC_PROTOTYPE_DIFFERENT";
-                puts(str_err);
-                *(int*)1 = 0;
                 break;
             default: break;
         }

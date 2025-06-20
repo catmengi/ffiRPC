@@ -30,6 +30,7 @@
 
 #include <jansson.h>
 
+#include <errno.h>
 #include <pthread.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -156,6 +157,8 @@ static void net_discon(int fd, void* ctx){
 
     pthread_mutex_lock(&global_lock);
     if(RN_persons[fd]){
+        if(holder->notify.persondata_destroy) holder->notify.persondata_destroy(RN_persons[fd],holder->notify.userdata);
+
         RN_persons[fd]->fd = 0;
         for(size_t i = 0; i < rpc_net_person_request_ammount(RN_persons[fd]); i++){
             rpc_struct_free(sc_queue_del_first(&RN_persons[fd]->request_que));
@@ -177,25 +180,34 @@ static void net_read(int fd, void* ctx){
 
     pthread_mutex_lock(&global_lock);
 
+    if(fd < RN_alloced_personsfd){
     rpc_net_person_t person = RN_persons[fd];
-    if(person){
-        json_t* req_json = json_load_callback(json_recv_callback,&fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY,NULL);
+        if(person){
+            json_t* req_json = json_load_callback(json_recv_callback,&fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY,NULL);
 
-        rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
-        if(req){
-            sc_queue_add_last(&person->request_que,req);
-            if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
+            rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
+            if(req){
+                sc_queue_add_last(&person->request_que,req);
+                if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
+            } else {shutdown(fd, SHUT_RDWR); close(fd);}
+
+            json_decref(req_json);
         } else {shutdown(fd, SHUT_RDWR); close(fd);}
-
-        json_decref(req_json);
-    }else {shutdown(fd, SHUT_RDWR); close(fd);}
+    } else {
+        printf("%s :: %s:%d fd is BIGGER than RN_alloced_personsfd, BUG!\n",__PRETTY_FUNCTION__, __FILE__, __LINE__);
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    } //BUG: Why? Something is really WRONG HERE!
 
     pthread_mutex_unlock(&global_lock);
 }
-
+int json_send_callback(const char *buffer, size_t size, void *data){
+    // errno = 0; //esp-idf
+    return send(*(int*)data,buffer,size,MSG_NOSIGNAL) > 0 && errno == 0 ? 0 : -1;
+}
 int rpc_net_send(int fd, rpc_struct_t tosend){
     json_t* send = rpc_struct_serialise(tosend);
-    int ret = json_dumpfd(send,fd,JSON_COMPACT);
+    int ret = json_dump_callback(send, json_send_callback,&fd,JSON_COMPACT);
 
     rpc_struct_free(tosend); //dont need it now, should be it free now
     json_decref(send);
@@ -222,6 +234,12 @@ char* rpc_net_person_id(rpc_net_person_t person){
 size_t rpc_net_person_request_ammount(rpc_net_person_t person){
     assert(person);
     return sc_queue_size(&person->request_que);
+}
+rpc_net_notifier_callback rpc_net_holder_get_notify(rpc_net_holder_t holder){
+    if(holder)
+        return holder->notify;
+
+    return (rpc_net_notifier_callback){0};
 }
 int rpc_net_person_fd(rpc_net_person_t person){
     assert(person);

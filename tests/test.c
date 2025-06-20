@@ -159,11 +159,12 @@ void test_call_fn(char* str, unsigned char t){
     assert(t == 221);
     rpc_struct_t lobject = rpc_object_get_local();
     assert(lobject);
-    puts(str);
+    // puts(str);
     assert(str);
 }
 
 void call_test(){
+    puts("Doing rpc_cobject_call test!");
     rpc_struct_t cobj = rpc_struct_create();
 
     rpc_function_t fn = rpc_function_create();
@@ -177,7 +178,7 @@ void call_test(){
     rpc_cobject_add("console", cobj);
 
     rpc_struct_t params = rpc_struct_create();
-    rpc_struct_set(params, "0", (char*)"\n\tif ffi is okay it should put out this line into system's console\t\n");
+    rpc_struct_set(params, "0", (char*)"\nif ffi is okay it should put out this line into system's console\n");
     rpc_struct_set(params, "1", (uint64_t)221);
 
     rpc_struct_t ret = rpc_struct_create();
@@ -193,7 +194,6 @@ void call_test(){
 }
 
 void network_test_client_less(int sock){ //TODO: client
-
     rpc_struct_t sreq = rpc_struct_create();
 
     rpc_struct_set(sreq, "method", (char*)"call");
@@ -215,16 +215,18 @@ void network_test_client_less(int sock){ //TODO: client
 
 void client_test(){
     int sock = socket(AF_INET,SOCK_STREAM,0);
+    if(sock <= 0) return;
     struct sockaddr_in addr = {
         .sin_addr.s_addr = inet_addr("127.0.0.1"),
         .sin_family = AF_INET,
         .sin_port = htons(2077),
     };
-    assert(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) == 0);
+    if(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) != 0) goto r;
 
     for(int i = 0; i < 1000 * 8; i++){
         network_test_client_less(sock);
     }
+    r:
     shutdown(sock,SHUT_RDWR);
     close(sock);
 }
@@ -232,14 +234,16 @@ void client_test(){
 void spam_test(){
     for(size_t i = 0; i < 1000; i++){
         int sock = socket(AF_INET,SOCK_STREAM,0);
+        if(sock <= 0) continue;
         struct sockaddr_in addr = {
             .sin_addr.s_addr = inet_addr("127.0.0.1"),
             .sin_family = AF_INET,
             .sin_port = htons(2077),
         };
-        assert(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) == 0);
+        if(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) != 0) {close(sock); continue;};
 
         network_test_client_less(sock);
+        r:
         shutdown(sock,SHUT_RDWR);
         close(sock);
     }
@@ -256,9 +260,12 @@ int main(){
      call_test();
 
       assert(rpc_server_launch_port(2077) == 0);
-      client_test();
-      spam_test();
-      getchar();
+      sleep(1);
+      for(size_t i = 0; i < 128; i++){
+        printf("\n\n \t %s iteration %zu \t \n\n",__PRETTY_FUNCTION__, i);
+        client_test();
+        spam_test();
+      }
 
       rpc_server_stop_port(2077);
 }

@@ -1,10 +1,3 @@
-#pragma once
-
-#include <assert.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdatomic.h>
-
 // MIT License
 //
 // Copyright (c) 2025 Catmengi
@@ -27,8 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#pragma once
 
-
+#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdatomic.h>
 
 #include "sc_queue.h"
 #include "rpc_struct.h"
