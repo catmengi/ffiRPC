@@ -1,7 +1,6 @@
 #include "../include/rpc_struct.h"
 #include "../include/rpc_server.h"
 #include "../include/rpc_init.h"
-#include "../include/rpc_protocol.h"
 #include "../include/rpc_network.h"
 
 #include <assert.h>
@@ -22,6 +21,10 @@ void check_rpc_struct_onfree_remove(){
     rpc_struct_free(c);
 
     assert(rpc_struct_exist(t,"!c") == 0);
+    rpc_struct_t check = NULL;
+    assert(rpc_struct_get(t, "!c", check) != 0);
+    assert(check == NULL);
+
     rpc_struct_free(t);
 }
 
@@ -157,6 +160,7 @@ void test_call_fn(char* str, unsigned char t){
     rpc_struct_t lobject = rpc_object_get_local();
     assert(lobject);
     puts(str);
+    assert(str);
 }
 
 void call_test(){
@@ -225,6 +229,22 @@ void client_test(){
     close(sock);
 }
 
+void spam_test(){
+    for(size_t i = 0; i < 1000; i++){
+        int sock = socket(AF_INET,SOCK_STREAM,0);
+        struct sockaddr_in addr = {
+            .sin_addr.s_addr = inet_addr("127.0.0.1"),
+            .sin_family = AF_INET,
+            .sin_port = htons(2077),
+        };
+        assert(connect(sock,(struct sockaddr*)&addr, sizeof(addr)) == 0);
+
+        network_test_client_less(sock);
+        shutdown(sock,SHUT_RDWR);
+        close(sock);
+    }
+}
+
 int main(){
      signal(SIGPIPE, SIG_IGN);
      rpc_init();
@@ -237,6 +257,7 @@ int main(){
 
       assert(rpc_server_launch_port(2077) == 0);
       client_test();
+      spam_test();
       getchar();
 
       rpc_server_stop_port(2077);

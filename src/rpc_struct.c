@@ -38,9 +38,9 @@
 
 #define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
 
-static struct prec_callbacks rpc_struct_default_prec_cbs;
+struct prec_callbacks rpc_struct_default_prec_cbs;
 
-static char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 struct _rpc_struct{
     hashtable* ht;
@@ -52,13 +52,6 @@ struct _rpc_struct{
     rpc_struct_destructor manual_destructor;
 };
 
-typedef void (*rpc_struct_free_cb)(void*);
-
-typedef struct{
-    rpc_struct_t origin;
-    char* name;
-    rpc_struct_free_cb free;
-}prec_rpc_udata;
 
 typedef struct{
     rpc_struct_t* origins;
@@ -148,19 +141,21 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         }
 
         pthread_mutex_lock(&ptr_ctx->lock);
-        rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
-        if(ctx == NULL){
-            ctx = malloc(sizeof(*ctx)); assert(ctx);
+        if(udat->name != NULL && udat->origin != NULL){
+            rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
+            if(ctx == NULL){
+                ctx = malloc(sizeof(*ctx)); assert(ctx);
 
-            ctx->o_index = 0;
-            ctx->o_size = RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE;
-            ctx->origins = malloc(sizeof(*ctx->origins) * ctx->o_size); assert(ctx->origins);
-            sc_queue_init(&ctx->empty_origins);
-            hashtable_set(ptr_ctx->keys,strdup(udat->name),ctx);
+                ctx->o_index = 0;
+                ctx->o_size = RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE;
+                ctx->origins = malloc(sizeof(*ctx->origins) * ctx->o_size); assert(ctx->origins);
+                sc_queue_init(&ctx->empty_origins);
+                hashtable_set(ptr_ctx->keys,strdup(udat->name),ctx);
+            }
+            int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
+            if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
+            ctx->origins[index] = udat->origin;
         }
-        int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
-        if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
-        ctx->origins[index] = udat->origin;
         pthread_mutex_unlock(&ptr_ctx->lock);
     }
 }
@@ -195,7 +190,7 @@ static void rpc_struct_decrement_cb(prec_t prec, void* udata){
     }
 }
 
-static struct prec_callbacks rpc_struct_default_prec_cbs = {
+struct prec_callbacks rpc_struct_default_prec_cbs = {
     .zero = rpc_struct_onzero_cb,
     .increment = rpc_struct_increment_cb,
     .decrement = rpc_struct_decrement_cb,
@@ -240,7 +235,7 @@ int rpc_is_pointer(enum rpc_types type){ //return 1 if rpc_type is pointer, 0 if
 
     return ret;
 }
-static rpc_struct_free_cb rpc_freefn_of(enum rpc_types type){
+rpc_struct_free_cb rpc_freefn_of(enum rpc_types type){
     rpc_struct_free_cb fn = NULL;
     if(rpc_is_pointer(type)){
         switch(type){
@@ -293,7 +288,7 @@ struct rpc_struct_duplicate_info {
     char** duplicates;
 };
 
-//THIS CODE WAS HUGGELY REFACTORED VIA AI, IF YOU FIND BUG IN IT, REPORT IMMEDIATLY!
+//THIS CODE WAS HUGGELY REFACTORED VIA AI AND EDITED BY ME(Catmengi), IF YOU FIND BUG IN IT, REPORT IMMEDIATLY!
 struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output) {
     assert(rpc_struct);
     *len_output = 0;
@@ -314,8 +309,7 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     size_t count = 0;
 
     for (size_t i = 0; i < length; i++) {
-        struct rpc_container_element* element = hashtable_get(rpc_struct->ht, keys[i]);
-        if (!element) continue;
+        struct rpc_container_element* element = hashtable_get(rpc_struct->ht, keys[i]); assert(element); //DEBUG: hashtable/race condition bug catching!
 
         char ptr_str[sizeof(void*) * 4];
         sprintf(ptr_str, "%p", element->data);
@@ -327,8 +321,7 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
                 // Новый объект — расширяем массив при необходимости
                 if (count == capacity) {
                     capacity *= 2;
-                    duplicates = realloc(duplicates, capacity * sizeof(*duplicates));
-                    assert(duplicates);
+                    assert((duplicates = realloc(duplicates, capacity * sizeof(*duplicates))) != NULL);
                 }
                 // Инициализируем info
                 info = &duplicates[count++];
@@ -340,12 +333,9 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
                 // Добавляем в хеш-таблицу
                 hashtable_set(ptr_map, strdup(ptr_str), info);
             } else {
-                // Добавляем ключ в duplicates
-                size_t new_len = info->duplicates_len + 1;
-                info->duplicates = realloc(info->duplicates, new_len * sizeof(char*));
-                assert(info->duplicates);
-                info->duplicates[info->duplicates_len] = keys[i];
-                info->duplicates_len = new_len;
+                //adding keys to duplicates, since wine dont know ammount of duplicates before hand, just do realloc!
+                assert((info->duplicates = realloc(info->duplicates, ++info->duplicates_len * sizeof(*info->duplicates))) != NULL);
+                info->duplicates[info->duplicates_len - 1] = keys[i];
             }
         }
     }
@@ -669,12 +659,6 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
     return rpc_struct != NULL ? hashtable_get(rpc_struct->ht,key) : NULL;
 }
 
-void rpc_struct_increment_refcount(void* ptr){
-    prec_t prec = prec_get(ptr);
-    if(prec == NULL) prec = prec_new(ptr,rpc_struct_default_prec_cbs);
-
-    prec_increment(prec,NULL);
-}
 void rpc_struct_decrement_refcount(void* ptr){
     prec_t prec = prec_get(ptr);
     if(prec) prec_decrement(prec,NULL);

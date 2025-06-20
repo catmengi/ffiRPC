@@ -1,3 +1,28 @@
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+
 #include "../include/rpc_network.h"
 #include "../include/rpc_struct.h"
 #include "../include/sc_queue.h"
@@ -26,7 +51,7 @@ static rpc_net_person_t* RN_persons = NULL;
 static atomic_int RN_alloced_personsfd = 0;;
 
 struct _rpc_net_person{
-    rpc_struct_t persondata;
+    char ID[RPC_STRUCT_ID_SIZE];
 
     struct sc_queue_ptr request_que;
 
@@ -87,29 +112,38 @@ int create_tcp_listenfd(short port){
 }
 
 static void make_personsfd_bigger(rpc_net_holder_t holder, int to){
-    pthread_mutex_lock(&global_lock);
-
     if(to >= RN_alloced_personsfd){  //TODO: proper alloc
         int prev_s = RN_alloced_personsfd;
         RN_alloced_personsfd += HOLDER_MIN_ALLOC_FDS;
         assert((RN_persons = realloc(RN_persons, RN_alloced_personsfd * sizeof(*RN_persons))));
 
-        memset(&RN_persons[prev_s],0,RN_alloced_personsfd - prev_s * sizeof(RN_persons));
+        memset(&RN_persons[prev_s],0,(RN_alloced_personsfd - prev_s) * sizeof(RN_persons));
     }
-
-    pthread_mutex_unlock(&global_lock);
 }
 
 static void net_accept(int fd, void* ctx){
     rpc_net_holder_t holder = ctx;
 
+    pthread_mutex_lock(&global_lock);
     make_personsfd_bigger(holder,fd); //it have internal check of size, dont worry!
 
-    pthread_mutex_lock(&global_lock);
+    if(RN_persons[fd] != NULL) {
+        pthread_mutex_unlock(&global_lock);
+        net_discon(fd,ctx);
+        pthread_mutex_lock(&global_lock);
+    }
 
     RN_persons[fd] = malloc(sizeof(*RN_persons[0])); assert(RN_persons[fd]);
     RN_persons[fd]->fd = fd;
-    RN_persons[fd]->persondata = rpc_struct_create();
+
+    arc4random_buf(RN_persons[fd]->ID,RPC_STRUCT_ID_SIZE - 1);
+    RN_persons[fd]->ID[RPC_STRUCT_ID_SIZE - 1] = '\0';
+
+    for(int i = 0 ; i < RPC_STRUCT_ID_SIZE - 1; i++){
+        while(RN_persons[fd]->ID[i] == '\0') RN_persons[fd]->ID[i] = arc4random();
+        RN_persons[fd]->ID[i] = ID_alphabet[RN_persons[fd]->ID[i] % (sizeof(ID_alphabet) - 1)];
+    }
+
     sc_queue_init(&RN_persons[fd]->request_que);
 
     if(holder->notify.persondata_init) holder->notify.persondata_init(RN_persons[fd], holder->notify.userdata);
@@ -127,7 +161,6 @@ static void net_discon(int fd, void* ctx){
             rpc_struct_free(sc_queue_del_first(&RN_persons[fd]->request_que));
         }
         sc_queue_term(&RN_persons[fd]->request_que);
-        rpc_struct_free(RN_persons[fd]->persondata);
 
         free(RN_persons[fd]);
         RN_persons[fd] = NULL;
@@ -135,33 +168,36 @@ static void net_discon(int fd, void* ctx){
     pthread_mutex_unlock(&global_lock);
 }
 
+size_t json_recv_callback(void* buffer, size_t buflen, void* userdata){
+    return (size_t)recv(*(int*)userdata,buffer,buflen,MSG_NOSIGNAL);
+}
+
 static void net_read(int fd, void* ctx){
     rpc_net_holder_t holder = ctx;
 
     pthread_mutex_lock(&global_lock);
 
-    assert(RN_persons[fd]); //ASSERT!
     rpc_net_person_t person = RN_persons[fd];
+    if(person){
+        json_t* req_json = json_load_callback(json_recv_callback,&fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY,NULL);
 
-    json_t* req_json = json_loadfd(fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY, NULL);
+        rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
+        if(req){
+            sc_queue_add_last(&person->request_que,req);
+            if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
+        } else {shutdown(fd, SHUT_RDWR); close(fd);}
 
-    rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
-    if(req){
-        sc_queue_add_last(&person->request_que,req);
-        if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
-    } else {shutdown(fd, SHUT_RDWR); close(fd);}
-
-    json_decref(req_json);
+        json_decref(req_json);
+    }else {shutdown(fd, SHUT_RDWR); close(fd);}
 
     pthread_mutex_unlock(&global_lock);
-
 }
 
 int rpc_net_send(int fd, rpc_struct_t tosend){
     json_t* send = rpc_struct_serialise(tosend);
     int ret = json_dumpfd(send,fd,JSON_COMPACT);
 
-    if(ret == 0) rpc_struct_free(tosend); //dont need it now, should be it free now
+    rpc_struct_free(tosend); //dont need it now, should be it free now
     json_decref(send);
 
     return ret;
@@ -176,9 +212,13 @@ rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person){
 
     return request;
 }
-rpc_struct_t rpc_net_persondata(rpc_net_person_t person){
-    return person == NULL ? NULL : person->persondata;
+
+char* rpc_net_person_id(rpc_net_person_t person){
+    char* ret = NULL;
+    if(person) ret = person->ID;
+    return ret;
 }
+
 size_t rpc_net_person_request_ammount(rpc_net_person_t person){
     assert(person);
     return sc_queue_size(&person->request_que);

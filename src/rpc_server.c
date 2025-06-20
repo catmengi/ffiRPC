@@ -1,3 +1,28 @@
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+
 #include "../include/rpc_struct.h"
 #include "../include/rpc_server.h"
 #include "../include/rpc_object.h"
@@ -42,12 +67,14 @@ void time_logger(const char *format, ...) {
 //RPC server global variables! ================
 static rpc_struct_t RS_netports = NULL;
 static rpc_struct_t RS_methods = NULL; //server methonds, NOT rpc functions, used to handle client's requests;
+static rpc_struct_t RS_persondata = NULL;
 static threadpool RS_thpool = NULL;
 //=============================================
 
 //RPC server static function prototypes! ======
 static void message_receiver(rpc_net_person_t person, void* userdata);
 static void persondata_init(rpc_net_person_t person, void* userdata);
+static void persondata_destroy(rpc_net_person_t person, void* userdata);
 static void net_job(void* arg_p);
 //=============================================
 
@@ -63,6 +90,7 @@ static void RS_init_methods(){
 
 void rpc_server_init(){
     RS_netports = rpc_struct_create();
+    RS_persondata = rpc_struct_create();
 
     RS_methods = rpc_struct_create();
     RS_init_methods();
@@ -79,6 +107,7 @@ int rpc_server_launch_port(short port){
     rpc_net_notifier_callback notify = {
         .notify = message_receiver,
         .persondata_init = persondata_init,
+        .persondata_destroy = persondata_destroy,
         .userdata = NULL,
     };
 
@@ -116,7 +145,11 @@ static void message_receiver(rpc_net_person_t person, void* userdata){ //retrive
                                                      //But this may still cause issues when client disconnected while thread handle it. TODO: find a better way to fix this, but this should work
 
         rpc_struct_set(job_info, "fd", rpc_net_person_fd(person));
-        assert(rpc_struct_set(job_info, "persondata", rpc_struct_copy(rpc_net_persondata(person))) == 0);
+
+        rpc_struct_t persondata = NULL;
+        assert(rpc_struct_get(RS_persondata, rpc_net_person_id(person), persondata) == 0);
+        assert(rpc_struct_set(job_info, "persondata",persondata) == 0);
+
         assert(rpc_struct_set(job_info, "request", rpc_net_person_get_request(person)) == 0);
 
         thpool_add_work(RS_thpool,net_job,job_info);
@@ -126,10 +159,15 @@ static void message_receiver(rpc_net_person_t person, void* userdata){ //retrive
     }
 }
 static void persondata_init(rpc_net_person_t person, void* userdata){
-    rpc_struct_t persondata = rpc_net_persondata(person);
+    rpc_struct_t persondata = rpc_struct_create();
 
     rpc_struct_set(persondata, "lobjects", rpc_struct_create());
     rpc_struct_set(persondata, "fd", rpc_net_person_fd(person));
+
+    assert(rpc_struct_set(RS_persondata, rpc_net_person_id(person), persondata) == 0);
+}
+static void persondata_destroy(rpc_net_person_t person, void* userdata){
+    rpc_struct_remove(RS_persondata, rpc_net_person_id(person));
 }
 
 static void net_job(void* arg_p){ //handles network requests! Works from threadpool
@@ -158,7 +196,7 @@ static void net_job(void* arg_p){ //handles network requests! Works from threadp
 
     time_logger("request parsed succesfully\n");
     rpc_struct_free(job_info);
-    if(rpc_net_send(fd,reply) != 0) {rpc_struct_free(reply); goto error_shut;};
+    if(rpc_net_send(fd,reply) != 0) goto error_shut;
     return;
 
 error:

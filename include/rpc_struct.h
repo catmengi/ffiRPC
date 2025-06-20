@@ -36,6 +36,7 @@
 
 #include "hashtable.h"
 #include "rpc_sizedbuf.h"
+#include "ptracker.h"
 
 #define RPC_STRUCT_ID_SIZE 65
 
@@ -68,7 +69,6 @@ enum rpc_types{
     RPC_unknown,
 };
 
-#include "rpc_struct_internal.h"
 #include "rpc_function.h"
 
 
@@ -80,6 +80,7 @@ enum rpc_types{
  */
 typedef struct _rpc_struct *rpc_struct_t;
 typedef void (*rpc_struct_destructor)(rpc_struct_t rpc_struct);//function pointer to manualy destruct object in rpc_struct, like closing FDs or so
+#include "rpc_struct_internal.h"
 
 /**
  * @brief Creates a new RPC structure
@@ -193,7 +194,13 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
  * @brief Increments rpc_struct's element refcount
  * @param ptr pointer type that is inserted / was inserted to any rpc_struct_t
 */
-void rpc_struct_increment_refcount(void* ptr);
+#define rpc_struct_increment_refcount(__ptr) ({\
+if(rpc_is_pointer(ctype_to_rpc(typeof(__ptr)) && ctype_to_rpc(typeof(__ptr)) != RPC_string && ctype_to_rpc(typeof(__ptr)) != RPC_unknown)){\
+    prec_rpc_udata __udat = {.origin = NULL, .name = NULL, .free = rpc_freefn_of(ctype_to_rpc(typeof(__ptr)))};\
+    prec_t __prec = prec_get(__ptr); if(__prec == NULL) {__prec = prec_new(__ptr, rpc_struct_default_prec_cbs);}\
+    prec_increment(__prec, &__udat);\
+}})
+
 /**
  * @brief Decrements rpc_struct's element refcount
  * @param ptr pointer type that is inserted / was inserted to any rpc_struct_t
