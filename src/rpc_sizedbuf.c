@@ -60,7 +60,7 @@ void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
 }
 
 #define STRINGIFY(x) #x
-json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf){
+json_t* rpc_sizedbuf_serialize(rpc_sizedbuf_t szbuf){
     json_t* root = json_object(); assert(root);
 
     json_object_set_new(root,"type",json_string(STRINGIFY(RPC_sizedbuf)));
@@ -75,7 +75,7 @@ json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf){
     return root;
 }
 
-rpc_sizedbuf_t rpc_sizedbuf_unserialise(json_t* json){
+rpc_sizedbuf_t rpc_sizedbuf_deserialize(json_t* json){
     rpc_sizedbuf_t szbuf = malloc(sizeof(*szbuf)); assert(szbuf);
     json_t* type = json_object_get(json,"type");
 

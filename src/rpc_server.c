@@ -26,6 +26,7 @@
 #include "../include/rpc_struct.h"
 #include "../include/rpc_server.h"
 #include "../include/rpc_object.h"
+#include "../include/rpc_object_internal.h"
 #include "../include/rpc_network.h"
 #include "../include/C-Thread-Pool/thpool.h"
 
@@ -103,7 +104,7 @@ int rpc_server_launch_port(short port){
     char acc[sizeof(int) * 4];
     sprintf(acc,"%d",(int)port);
 
-    if(rpc_struct_exist(RS_netports,acc)) return 1; //port already launched!!!
+    if(rpc_struct_exists(RS_netports,acc)) return 1; //port already launched!!!
 
     pthread_mutex_t* sync_mutex = malloc(sizeof(*sync_mutex)); assert(sync_mutex);
     pthread_mutex_init(sync_mutex,NULL);
@@ -125,7 +126,7 @@ int rpc_server_stop_port(short port){
     char acc[sizeof(int) * 4];
     sprintf(acc,"%d",(int)port);
 
-    if(rpc_struct_exist(RS_netports,acc)){
+    if(rpc_struct_exists(RS_netports,acc)){
         rpc_net_holder_t net_port = NULL;
 
         assert(rpc_struct_get(RS_netports, acc, net_port) == 0);
@@ -167,6 +168,7 @@ static void message_receiver(rpc_net_person_t person, void* userdata){ //retrive
     pthread_mutex_unlock(userdata);
 }
 static void persondata_init(rpc_net_person_t person, void* userdata){
+    time_logger("new client connected! %d\n", rpc_net_person_fd(person));
     rpc_struct_t persondata = rpc_struct_create();
 
     rpc_struct_set(persondata, "lobjects", rpc_struct_create());
@@ -175,6 +177,7 @@ static void persondata_init(rpc_net_person_t person, void* userdata){
     assert(rpc_struct_set(RS_persondata, rpc_net_person_id(person), persondata) == 0);
 }
 static void persondata_destroy(rpc_net_person_t person, void* userdata){
+    time_logger("client disconnected! %d\n", rpc_net_person_fd(person));
     pthread_mutex_lock(userdata);
     thpool_wait(RS_thpool);
     rpc_struct_remove(RS_persondata, rpc_net_person_id(person));
@@ -239,7 +242,7 @@ static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     if(rpc_struct_get(request, "function",fn_name) != 0) return 1;
     if(rpc_struct_get(request, "params",fn_params) != 0) return 1;
 
-    rpc_object_load_locals(lobjects);
+    rpc_lobjects_load(lobjects);
     enum rpc_server_errors err = rpc_cobject_call(rpc_cobject_get(cobj_name), fn_name, fn_params, reply);
 
     if(err != ERR_RPC_OK){
@@ -254,7 +257,7 @@ static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
                 break;
             default: break;
         }
-
+        puts(str_err);
         rpc_struct_set(reply, "error", str_err);
         return 1;
     }

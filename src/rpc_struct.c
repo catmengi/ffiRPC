@@ -83,7 +83,10 @@ rpc_struct_t rpc_struct_create(void){
         rpc_struct->ID[i] = ID_alphabet[rpc_struct->ID[i] % (sizeof(ID_alphabet) - 1)];
     }
 
-    pthread_mutex_init(&rpc_struct->lock,NULL);
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&rpc_struct->lock,&attr);
 
     rpc_struct->copyof = NULL;
     rpc_struct->manual_destructor = NULL;
@@ -108,7 +111,11 @@ static void rpc_struct_onzero_cb(prec_t prec){
             rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,keys[i]);
             if(ctx){
                 for(int j = 0; j < ctx->o_index; j++){
-                    rpc_struct_remove(ctx->origins[j],keys[i]);
+                    if(ctx->origins[j]){
+                        pthread_mutex_lock(&ctx->origins[j]->lock);
+                        rpc_struct_remove(ctx->origins[j],keys[i]);
+                        pthread_mutex_unlock(&ctx->origins[j]->lock);
+                    }
                 }
                 sc_queue_term(&ctx->empty_origins);
                 free(ctx->origins);
@@ -136,13 +143,17 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
 
             ptr_ctx->keys = hashtable_create();
             ptr_ctx->free = udat->free;
-            pthread_mutex_init(&ptr_ctx->lock,NULL);
 
+            pthread_mutexattr_t attr;
+            pthread_mutexattr_init(&attr);
+            pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+            pthread_mutex_init(&ptr_ctx->lock,&attr);
             prec_context_set(prec,ptr_ctx);
         }
 
         pthread_mutex_lock(&ptr_ctx->lock);
         if(udat->name != NULL && udat->origin != NULL){
+            pthread_mutex_lock(&udat->origin->lock);
             rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
             if(ctx == NULL){
                 ctx = malloc(sizeof(*ctx)); assert(ctx);
@@ -156,6 +167,7 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
             int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
             if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
             ctx->origins[index] = udat->origin;
+            pthread_mutex_unlock(&udat->origin->lock);
         }
         pthread_mutex_unlock(&ptr_ctx->lock);
     }
@@ -202,13 +214,13 @@ struct prec_callbacks rpc_struct_default_prec_cbs = {
 static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
     if(rpc_struct){
         if(rpc_struct->manual_destructor) rpc_struct->manual_destructor(rpc_struct);
-
+        pthread_mutex_lock(&rpc_struct->lock);
         for(size_t i = 0; i < rpc_struct->ht->capacity; i++){
             if(rpc_struct->ht->body[i].key != NULL && rpc_struct->ht->body[i].key != (char*)0xDEAD){
                 rpc_struct_remove(rpc_struct,rpc_struct->ht->body[i].key);
             }
         }
-
+        pthread_mutex_unlock(&rpc_struct->lock);
         hashtable_destroy(rpc_struct->ht);
         free(rpc_struct);
     }
@@ -227,7 +239,9 @@ char* rpc_struct_id_get(rpc_struct_t rpc_struct){
 }
 
 void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]){
+    pthread_mutex_lock(&rpc_struct->lock);
     memcpy(rpc_struct->ID,ID,strlen(ID));
+    pthread_mutex_unlock(&rpc_struct->lock);
 }
 
 int rpc_is_pointer(enum rpc_types type){ //return 1 if rpc_type is pointer, 0 if not
@@ -257,6 +271,7 @@ rpc_struct_free_cb rpc_freefn_of(enum rpc_types type){
 
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
     if(rpc_struct && key){
+        pthread_mutex_lock(&rpc_struct->lock);
         struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
         if(element){
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
@@ -267,7 +282,6 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
                 prec_decrement(prec_get(element->data),&udat);
             } else if(element->type == RPC_string || !rpc_is_pointer(element->type)) free(element->data);
 
-            pthread_mutex_lock(&rpc_struct->lock);
             char* kfree = rpc_struct->ht->body[hashtable_find_slot(rpc_struct->ht,key)].key;
             hashtable_remove(rpc_struct->ht,key);
             free(kfree);
@@ -275,6 +289,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
             pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
         }
+        pthread_mutex_unlock(&rpc_struct->lock);
         return 1;
     }
     return 1;
@@ -363,7 +378,8 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
 //==========================================================================
 
 #define STRINGIFY(x) #x
-json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
+json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
+    pthread_mutex_lock(&rpc_struct->lock);
     hashtable* dupless_ht = malloc(sizeof(*dupless_ht)); assert(dupless_ht);
 
     dupless_ht->size = rpc_struct->ht->size;
@@ -406,13 +422,13 @@ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
         if(rpc_is_pointer(el->type) && el->type != RPC_string){
             switch(el->type){
                 case RPC_struct:
-                    item = rpc_struct_serialise(el->data);
+                    item = rpc_struct_serialize(el->data);
                     break;
                 case RPC_function:
-                    item = rpc_function_serialise(el->data);
+                    item = rpc_function_serialize(el->data);
                     break;
                 case RPC_sizedbuf:
-                    item = rpc_sizedbuf_serialise(el->data);
+                    item = rpc_sizedbuf_serialize(el->data);
                     break;
                 default: break;
             }
@@ -472,7 +488,7 @@ json_t* rpc_struct_serialise(rpc_struct_t rpc_struct){
         free(dups[i].duplicates);
     }
     free(dups);
-
+    pthread_mutex_unlock(&rpc_struct->lock);
     return root;
 }
 static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
@@ -493,11 +509,11 @@ static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
             const char* item_type = json_string_value(json_object_get(item,"type"));
 
             if(strcmp(item_type, STRINGIFY(RPC_struct)) == 0){
-                rpc_struct_set(rpc_struct, key, rpc_struct_unserialise(item));
+                rpc_struct_set(rpc_struct, key, rpc_struct_deserialize(item));
             } else if(strcmp(item_type, STRINGIFY(RPC_function)) == 0){
-                rpc_struct_set(rpc_struct, key, rpc_function_unserialise(item));
+                rpc_struct_set(rpc_struct, key, rpc_function_deserialize(item));
             } else if(strcmp(item_type, STRINGIFY(RPC_sizedbuf)) == 0){
-                rpc_struct_set(rpc_struct, key, rpc_sizedbuf_unserialise(item));
+                rpc_struct_set(rpc_struct, key, rpc_sizedbuf_deserialize(item));
             } else return;
         }
         break;
@@ -517,7 +533,9 @@ static void item_parse(json_t* item, rpc_struct_t rpc_struct, char* key){
         }
     }
 }
-rpc_struct_t rpc_struct_unserialise(json_t* json){
+rpc_struct_t rpc_struct_deserialize(json_t* json){
+    if(json == NULL) return NULL;
+
     rpc_struct_t new = rpc_struct_create();
 
     json_t* ID = json_object_get(json,"ID");
@@ -598,7 +616,8 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     return copy;
 }
 
-rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct){
+rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct){
+    pthread_mutex_lock(&rpc_struct->lock);
     rpc_struct_t parent = rpc_struct->copyof;
     if(rpc_struct->copyof != NULL){
         prec_t parent_prec = prec_get(rpc_struct->copyof);
@@ -607,6 +626,7 @@ rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct){
             parent = NULL;
         }
     }
+    pthread_mutex_unlock(&rpc_struct->lock);
     return parent;
 }
 
@@ -616,24 +636,36 @@ size_t rpc_struct_length(rpc_struct_t rpc_struct){
 }
 char** rpc_struct_keys(rpc_struct_t rpc_struct){
     assert(rpc_struct);
-    return hashtable_get_keys(rpc_struct->ht);
+    pthread_mutex_lock(&rpc_struct->lock);
+    char** keys =  hashtable_get_keys(rpc_struct->ht);
+    pthread_mutex_unlock(&rpc_struct->lock);
+
+    return keys;
 }
 
 enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
     assert(rpc_struct);
+    pthread_mutex_lock(&rpc_struct->lock);
     struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
-    return (element == NULL ? 0 : element->type);
+    enum rpc_types ret =  (element == NULL ? 0 : element->type);
+    pthread_mutex_unlock(&rpc_struct->lock);
+
+    return ret;
 }
 
-int rpc_struct_exist(rpc_struct_t rpc_struct, char* key){
-    return (hashtable_get(rpc_struct->ht,key) == NULL ? 0 : 1);
+int rpc_struct_exists(rpc_struct_t rpc_struct, char* key){
+    pthread_mutex_lock(&rpc_struct->lock);
+    int ret =  (hashtable_get(rpc_struct->ht,key) == NULL ? 0 : 1);
+    pthread_mutex_unlock(&rpc_struct->lock);
+
+    return ret;
 }
 
 int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element){
     if(element->data == NULL) {free(element); return 1;}
 
+    pthread_mutex_lock(&rpc_struct->lock);
     if(hashtable_get(rpc_struct->ht,key) == NULL){
-        pthread_mutex_lock(&rpc_struct->lock);
         if(element->type == RPC_string){
             element->data = strdup(element->data); assert(element->data);
             element->length = strlen(element->data) + 1;
@@ -653,11 +685,19 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
         pthread_mutex_unlock(&rpc_struct->lock);
         return 0;
     }
+    pthread_mutex_unlock(&rpc_struct->lock);
     return 1;
 }
 
 struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
-    return rpc_struct != NULL ? hashtable_get(rpc_struct->ht,key) : NULL;
+    struct rpc_container_element* cont = NULL;
+    pthread_mutex_lock(&rpc_struct->lock);
+    if(rpc_struct && key){
+        cont = hashtable_get(rpc_struct->ht,key);
+    }
+    pthread_mutex_unlock(&rpc_struct->lock);
+
+    return cont;
 }
 
 void rpc_struct_decrement_refcount(void* ptr){
@@ -689,4 +729,15 @@ uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
     free(keys);
     pthread_mutex_unlock(&rpc_struct->lock);
     return hash;
+}
+
+void rpc_struct_manual_lock(rpc_struct_t rpc_struct){
+    if(rpc_struct){
+        pthread_mutex_lock(&rpc_struct->lock);
+    }
+}
+void rpc_struct_manual_unlock(rpc_struct_t rpc_struct){
+    if(rpc_struct){
+        pthread_mutex_unlock(&rpc_struct->lock);
+    }
 }

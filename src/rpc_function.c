@@ -52,7 +52,7 @@ void rpc_function_free(rpc_function_t fn){
 }
 
 #define STRINGIFY(x) #x
-json_t* rpc_function_serialise(rpc_function_t fn){
+json_t* rpc_function_serialize(rpc_function_t fn){
     json_t* root = json_object(); assert(root);
 
     json_object_set_new(root,"type",json_string(STRINGIFY(RPC_function)));
@@ -69,7 +69,7 @@ json_t* rpc_function_serialise(rpc_function_t fn){
 
     return root;
 }
-rpc_function_t rpc_function_unserialise(json_t* json){
+rpc_function_t rpc_function_deserialize(json_t* json){
     rpc_function_t fn = rpc_function_create();
     rpc_function_set_fnptr(fn,NULL);
 

@@ -30,15 +30,19 @@
 
 #include <assert.h>
 #include <ffi.h>
+#include <pthread.h>
 
-static rpc_struct_t RO_cobject = NULL;
-static __thread rpc_struct_t RO_lobjects = NULL; //lobjects should be loaded manualy!
+rpc_struct_t RO_cobject_bname = NULL;        //they are not static because they are exported via rpc_object_internal.h
+rpc_struct_t RO_cobject_bid = NULL;          //because i wasnt able to make a great API name for functions to get them but server need them
+
+static __thread volatile rpc_struct_t RO_lobjects = NULL; //lobjects should be loaded manualy!
 
 static __thread int RO_inited = 0;
 static __thread struct sc_queue_ptr RO_object_stack;
 
 void rpc_object_init(){
-    RO_cobject = rpc_struct_create();
+    RO_cobject_bname = rpc_struct_create();
+    RO_cobject_bid = rpc_struct_create();
 }
 
 static void rpc_object_thread_init(){
@@ -49,11 +53,18 @@ static void rpc_object_thread_init(){
 }
 
 int rpc_cobject_add(char* cobj_name, rpc_struct_t cobj){
-    return rpc_struct_set(RO_cobject, cobj_name, cobj);
+    int ret = 1;
+
+    if((ret = rpc_struct_set(RO_cobject_bname, cobj_name, cobj)) == 0){
+        ret = rpc_struct_set(RO_cobject_bid, rpc_struct_id_get(cobj), cobj);
+    }
+    return ret;
 }
 rpc_struct_t rpc_cobject_get(char* cobj_name){
     rpc_struct_t ret = NULL;
-    rpc_struct_get(RO_cobject, cobj_name, ret);
+    if(rpc_struct_get(RO_cobject_bname, cobj_name, ret) != 0){
+        rpc_struct_get(RO_cobject_bid, cobj_name, ret); //consider that cobj_name is actually ID
+    }
     return ret;
 }
 
@@ -73,29 +84,80 @@ static void rpc_cobject_pop(){
     sc_queue_del_first(&RO_object_stack);
 }
 
-rpc_struct_t rpc_object_get_local(){
+rpc_struct_t rpc_lobject_get_GOTO(){
+    rpc_object_thread_init();
+    rpc_struct_t ret = NULL;
+    rpc_struct_t new = NULL;
+    if(RO_lobjects){
+        rpc_struct_t current_cobject = rpc_cobject_peek();
+        if(current_cobject){
+            char* cobj_id = rpc_struct_id_get(current_cobject);
+get:
+            if(rpc_struct_get(RO_lobjects,cobj_id,ret) != 0){
+                if(rpc_struct_exists(RO_lobjects,cobj_id) == 0){
+                    new = rpc_struct_create();
+                    rpc_struct_set(RO_lobjects,cobj_id,new);
+                }
+                goto get;
+            }
+            if(ret != new) rpc_struct_free(new);
+        }
+    }
+    return ret;
+}
+
+rpc_struct_t rpc_lobject_get_GPT(){
     rpc_object_thread_init();
     rpc_struct_t ret = NULL;
     if(RO_lobjects){
         rpc_struct_t current_cobject = rpc_cobject_peek();
         if(current_cobject){
-            if(rpc_struct_get(RO_lobjects,rpc_struct_id_get(current_cobject),ret) != 0){
-                ret = rpc_struct_create();
-                assert(rpc_struct_set(RO_lobjects, rpc_struct_id_get(current_cobject), ret) == 0);
+            char* c_id = rpc_struct_id_get(current_cobject);
+            if(rpc_struct_get(RO_lobjects, c_id, ret) != 0){
+                rpc_struct_t new = rpc_struct_create();      // <-- здесь выделение памяти
+                if(rpc_struct_set(RO_lobjects, c_id, new) != 0){
+                    rpc_struct_free(new);                     // освобождаем при ошибке вставки
+                    assert(rpc_struct_get(RO_lobjects, c_id, ret) == 0);
+                } else ret = new;
             }
         }
     }
     return ret;
 }
 
-int rpc_cobject_remove(char* cobj_name){
-    rpc_object_thread_init();
-
-    if(sc_queue_size(&RO_object_stack) != 0) return 1;
-    return rpc_struct_remove(RO_cobject,cobj_name);
+rpc_struct_t rpc_lobject_get(){
+    rpc_struct_t ret = NULL;
+    rpc_struct_manual_lock(RO_lobjects); //dont worry, it is checks for NULL before locking, and it wouldnt cause deadlock with locking operations because it is recursive mutex underneath
+    if(RO_lobjects){
+        rpc_struct_t current_cobject = rpc_cobject_peek();
+        if(current_cobject){
+            char* c_id = rpc_struct_id_get(current_cobject);
+        _get:
+            if(rpc_struct_get(RO_lobjects, c_id, ret) != 0){
+                assert(rpc_struct_set(RO_lobjects, c_id, rpc_struct_create()) == 0);
+                goto _get;
+            }
+        }
+    }
+    rpc_struct_manual_unlock(RO_lobjects);
+    return ret;
 }
 
-void rpc_object_load_locals(rpc_struct_t lobjects){
+
+int rpc_cobject_remove(char* cobj_name){
+    rpc_object_thread_init();
+    int ret = 0;
+    if(sc_queue_size(&RO_object_stack) == 0){
+        rpc_struct_t to_remove = NULL;
+        if((ret = rpc_struct_get(RO_cobject_bname, cobj_name, to_remove)) != 0){
+            ret = rpc_struct_get(RO_cobject_bid, cobj_name, to_remove);
+        }
+        rpc_struct_free(to_remove);
+    }
+    return ret;
+}
+
+void rpc_lobjects_load(rpc_struct_t lobjects){
     RO_lobjects = lobjects;
 }
 

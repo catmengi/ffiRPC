@@ -79,7 +79,7 @@ enum rpc_types{
  * This is the main container type for RPC data, used throughout the API.
  */
 typedef struct _rpc_struct *rpc_struct_t;
-typedef void (*rpc_struct_destructor)(rpc_struct_t rpc_struct);//function pointer to manualy destruct object in rpc_struct, like closing FDs or so
+typedef void (*rpc_struct_destructor)(rpc_struct_t rpc_struct);//function pointer to manually destruct object in rpc_struct, like closing FDs or so
 #include "rpc_struct_internal.h"
 
 /**
@@ -110,7 +110,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with ke
  * @return rpc_struct serialised into json
  * @note json is encoded in specific format because of rpc_struct's metadata like ID, and duplicates
  */
- json_t* rpc_struct_serialise(rpc_struct_t rpc_struct);
+ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct);
 
  /**
   * @brief Deserializes json to RPC structure
@@ -120,7 +120,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with ke
   * @warning json_decref will be automaticly called on @param json
   * @note json is encoded in specific format because of rpc_struct's metadata like ID, and duplicates
   */
- rpc_struct_t rpc_struct_unserialise(json_t* json);
+ rpc_struct_t rpc_struct_deserialize(json_t* json);
 
  /**
   * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
@@ -149,7 +149,7 @@ char** rpc_struct_keys(rpc_struct_t rpc_struct); //return array of char* keys to
  * @param key Element key
  * @return 0 is doesnt exist, else 1
  */
-int rpc_struct_exist(rpc_struct_t rpc_struct, char* key);
+int rpc_struct_exists(rpc_struct_t rpc_struct, char* key);
 
 /**
  * @brief Gets the type of an element by key
@@ -210,7 +210,10 @@ void rpc_struct_decrement_refcount(void* ptr);
 char* rpc_struct_id_get(rpc_struct_t rpc_struct); //get rpc_struct's ID
 void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]); //sets rpc_struct's ID to particular value
 
-rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer to copy's original. NULL if not a copy
+void rpc_struct_manual_lock(rpc_struct_t rpc_struct); //manually locks almost all acesses to rpc_struct from other threads
+void rpc_struct_manual_unlock(rpc_struct_t rpc_struct);
+
+rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct); //return pointer to copy's original. NULL if not a copy
 /**
  * @brief Maps C types to RPC types using _Generic
  * @param Native_type The C type to map
@@ -254,7 +257,7 @@ rpc_struct_t rpc_struct_whoose_copy(rpc_struct_t rpc_struct); //return pointer t
 #define rpc_struct_set(__rpc_struct, __key, __input)({\
     int __ret = 1;\
     assert(__key != NULL);\
-    if(rpc_struct_exist(__rpc_struct, __key) == 0){\
+    if(rpc_struct_exists(__rpc_struct, __key) == 0){\
         struct rpc_container_element* __element = calloc(1,sizeof(*__element)); assert(__element);\
         c_to_rpc(__element,__input);\
         __ret = rpc_struct_set_internal(__rpc_struct,__key,__element);\

@@ -39,7 +39,7 @@
 #define init_log(fmt, ...) printf(fmt, __VA_ARGS__);
 
 void rpc_service_add(rpc_struct_t load,rpc_service_t service){
-    if(rpc_struct_exist(load,service.name) == 0){
+    if(rpc_struct_exists(load,service.name) == 0){
         rpc_struct_t new = rpc_struct_create();
 
         assert(rpc_struct_set(new,"init_handler",service.init_handler) == 0);
@@ -52,7 +52,7 @@ void rpc_service_add(rpc_struct_t load,rpc_service_t service){
                 sprintf(int_key,"%d",i);
 
                 rpc_struct_t after_which = NULL;
-                assert(rpc_struct_exist(load,service.dependecies[i]));
+                assert(rpc_struct_exists(load,service.dependecies[i]));
 
                 rpc_struct_set(dependencies,service.dependecies[i],0);
             }

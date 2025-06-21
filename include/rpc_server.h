@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 
-
+#pragma once
 
 #include "rpc_thread_context.h"
 #include "rpc_struct.h"

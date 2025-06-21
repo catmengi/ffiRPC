@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <assert.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #include <netinet/in.h>
@@ -171,8 +172,34 @@ static void net_discon(int fd, void* ctx){
     pthread_mutex_unlock(&global_lock);
 }
 
-size_t json_recv_callback(void* buffer, size_t buflen, void* userdata){
-    return (size_t)recv(*(int*)userdata,buffer,buflen,MSG_NOSIGNAL);
+int rpc_net_send_json(int fd, json_t* json){
+    int ret = 1;
+    char* send_string = json_dumps(json,JSON_COMPACT);
+    if(send_string){
+        uint64_t send_len = strlen(send_string);
+        if(send(fd,&send_len,sizeof(send_len), MSG_NOSIGNAL) != sizeof(send_len))  goto exit;
+        if(send(fd,send_string,(size_t)send_len,MSG_NOSIGNAL) != (size_t)send_len) goto exit;
+    }
+exit:
+    free(send_string);
+    return ret;
+}
+static json_t* rpc_net_recv_json(int fd){
+    uint64_t recv_len = 0;
+    json_t* ret = NULL;
+    char* recv_buf = NULL;
+
+    if(recv(fd,&recv_len,sizeof(recv_len),MSG_NOSIGNAL) != sizeof(recv_len)) goto exit;
+
+    recv_buf = malloc(recv_len);
+    if(recv_buf == NULL) goto exit;
+
+    if(recv(fd,recv_buf,(size_t)recv_len,MSG_NOSIGNAL) != (size_t)recv_len) goto exit;
+
+    ret = json_loadb(recv_buf,(size_t)recv_len,JSON_DISABLE_EOF_CHECK,NULL);
+exit:
+    free(recv_buf);
+    return ret;
 }
 
 static void net_read(int fd, void* ctx){
@@ -183,9 +210,9 @@ static void net_read(int fd, void* ctx){
     if(fd < RN_alloced_personsfd){
     rpc_net_person_t person = RN_persons[fd];
         if(person){
-            json_t* req_json = json_load_callback(json_recv_callback,&fd,JSON_DISABLE_EOF_CHECK | JSON_DECODE_ANY,NULL);
 
-            rpc_struct_t req = rpc_struct_unserialise(req_json); //TODO: callback based read to use encryption and compression
+            json_t* req_json = rpc_net_recv_json(fd);
+            rpc_struct_t req = rpc_struct_deserialize(req_json);
             if(req){
                 sc_queue_add_last(&person->request_que,req);
                 if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
@@ -201,13 +228,11 @@ static void net_read(int fd, void* ctx){
 
     pthread_mutex_unlock(&global_lock);
 }
-int json_send_callback(const char *buffer, size_t size, void *data){
-    // errno = 0; //esp-idf
-    return send(*(int*)data,buffer,size,MSG_NOSIGNAL) > 0 && errno == 0 ? 0 : -1;
-}
+
+
 int rpc_net_send(int fd, rpc_struct_t tosend){
-    json_t* send = rpc_struct_serialise(tosend);
-    int ret = json_dump_callback(send, json_send_callback,&fd,JSON_COMPACT);
+    json_t* send = rpc_struct_serialize(tosend);
+    int ret = rpc_net_send_json(fd,send);
 
     rpc_struct_free(tosend); //dont need it now, should be it free now
     json_decref(send);

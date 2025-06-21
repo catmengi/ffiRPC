@@ -55,7 +55,10 @@ rpc_struct_t rpc_thread_context_set(rpc_struct_t rpc_struct){
     sprintf(ht_access,"%p",thread_as_ptr);
 
     if(rpc_struct){
-        hashtable_set(thread_context,strdup(ht_access),rpc_struct);
+        if(hashtable_get(thread_context,ht_access)){
+            char* heap_key = thread_context->body[hashtable_find_slot(thread_context,ht_access)].key;
+            hashtable_set(thread_context,heap_key,rpc_struct);
+        } else hashtable_set(thread_context,strdup(ht_access),rpc_struct);
         return rpc_struct;
     } else {char* free_key = thread_context->body[hashtable_find_slot(thread_context,ht_access)].key; hashtable_remove(thread_context,ht_access); free(free_key); return NULL;}
 }
