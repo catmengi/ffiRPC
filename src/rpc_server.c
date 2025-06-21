@@ -51,11 +51,11 @@ void time_logger(const char *format, ...) {
     // Format the time into a string (e.g., "YYYY-MM-DD HH:MM:SS")
     strftime(timestamp_buffer, sizeof(timestamp_buffer), "%Y-%m-%d %H:%M:%S", info);
 
-    // printf("[%s] ", timestamp_buffer); // Print the timestamp
+    printf("[%s] ", timestamp_buffer); // Print the timestamp
 
     va_list args; // Declare a variable argument list
     va_start(args, format); // Initialize the argument list
-    // vprintf(format, args); // Print the user's message using vprintf
+    vprintf(format, args); // Print the user's message using vprintf
     va_end(args); // Clean up the argument list
 }
 
@@ -82,12 +82,27 @@ static void net_job(void* arg_p);
 
 //RPC server methonds prototypes ==============
 static int ping(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
+static int disconnect(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
+static int get_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 //=============================================
 
 static void RS_init_methods(){
     rpc_struct_set(RS_methods, "ping", (void*)ping); //some typeof related bug in macro prevent me from setting it without void* cast
+    rpc_struct_set(RS_methods, "disconnect", (void*)disconnect);
+    rpc_struct_set(RS_methods, "get_object",(void*)get_cobject);
     rpc_struct_set(RS_methods, "call", (void*)call);
+
+    time_logger("%s :: registered %zu methods\n",__PRETTY_FUNCTION__,rpc_struct_length(RS_methods));
+    time_logger("%s :: ",__PRETTY_FUNCTION__);
+
+    char** methods = rpc_struct_keys(RS_methods);
+    for(size_t i = 0; i < rpc_struct_length(RS_methods); i++){
+        printf("%s",methods[i]);
+        if(i != rpc_struct_length(RS_methods) - 1) printf(", ");
+    }
+    free(methods);
+    printf("\n\n");
 }
 
 void rpc_server_init(){
@@ -202,7 +217,7 @@ static void net_job(void* arg_p){ //handles network requests! Works from threadp
         if(rpc_struct_get(RS_methods, request_name,request_handler) == 0){
             rpc_struct_get(request, "params", request_params);
             if(request_handler(persondata,request_params,reply) != 0){
-                time_logger("request handler returned error, disconnecting client\n");
+                time_logger("request handler willed to end connection, disconnecting client\n");
                 goto error;
             }
         } else {time_logger("%s request %s doesnt exist!\n",__PRETTY_FUNCTION__, request_name);goto error;}
@@ -224,12 +239,44 @@ error_shut:
     return;
 }
 
+//same as net_job but without network support, will handle requests from local rpc client (i.e in same process)
+int rpc_server_localnet_job(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
+    char* request_name = NULL;
+    rpc_struct_t request_params = NULL;
+
+    if(rpc_struct_get(request, "method", request_name) == 0){
+        int (*request_handler)(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply) = NULL;
+        if(rpc_struct_get(RS_methods, request_name, request_handler) == 0){
+            rpc_struct_get(request, "params", request_params);
+            return request_handler(person, request_params, reply);
+        } else return 1;
+    } else return 1;
+}
+
 //RPC server methods functions ====================================================
 static int ping(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     rpc_struct_set(reply, "pong", (char*)"pong");
     return 0;
 }
+static int disconnect(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
+    return 1;
+}
 
+static int get_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
+    char* cobj_name = NULL;
+    if(rpc_struct_get(request, "object", cobj_name) != 0){
+        return 1;
+    }
+
+    rpc_struct_t cobj = rpc_cobject_get(cobj_name);
+    if(cobj == NULL){
+        rpc_struct_set(reply, "error", (char*)"ERR_RPC_DOESNT_EXIST");
+        return 0; //we doesnt really should end connection here!
+    }
+
+    rpc_struct_set(reply,"object", cobj);
+    return 0;
+}
 static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     rpc_struct_t lobjects = NULL;
     rpc_struct_get(person, "lobjects", lobjects);
@@ -257,9 +304,8 @@ static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
                 break;
             default: break;
         }
-        puts(str_err);
         rpc_struct_set(reply, "error", str_err);
-        return 1;
+        return 0; //error but not fatal!
     }
     return 0;
 }

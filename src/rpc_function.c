@@ -44,11 +44,34 @@ rpc_function_t rpc_function_create(){
     return fn;
 }
 
-void rpc_function_free(rpc_function_t fn){
+INTERNAL_API size_t rpc_function_memsize(){
+    return sizeof(struct _rpc_function);
+}
+
+void rpc_function_free_internals(rpc_function_t fn){
     if(fn){
         free(fn->prototype);
-        free(fn);
     }
+}
+void rpc_function_free(rpc_function_t fn){
+    if(fn){
+        prec_t prec = prec_get(fn);
+        if(prec) {prec_delete(prec);}
+        else{
+            rpc_function_free_internals(fn);
+            free(fn);
+        }
+    }
+}
+
+rpc_function_t rpc_function_copy(rpc_function_t fn){
+    rpc_function_t new = rpc_function_create();
+
+    rpc_function_set_fnptr(new,rpc_function_get_fnptr(fn));
+    rpc_function_set_return_type(new,rpc_function_get_return_type(fn));
+    rpc_function_set_prototype(new,rpc_function_get_prototype(fn),rpc_function_get_prototype_len(fn));
+
+    return new;
 }
 
 #define STRINGIFY(x) #x

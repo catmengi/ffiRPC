@@ -24,6 +24,7 @@
 
 #include "../include/rpc_sizedbuf.h"
 #include "../include/hashtable.h"
+#include "../include/ptracker.h"
 
 #include <assert.h>
 #include <jansson.h>
@@ -45,17 +46,34 @@ rpc_sizedbuf_t rpc_sizedbuf_create(char* buf, size_t length){
     return szbuf;
 }
 
+rpc_sizedbuf_t rpc_sizedbuf_copy(rpc_sizedbuf_t szbuf){
+    size_t len = 0;
+    return rpc_sizedbuf_create(rpc_sizedbuf_getbuf(szbuf,&len),len);
+}
+
+INTERNAL_API size_t rpc_sizedbuf_memsize(){
+    return sizeof(struct _rpc_sizedbuf);
+}
+
 char* rpc_sizedbuf_getbuf(rpc_sizedbuf_t szbuf, size_t* out_length){
     assert(szbuf); assert(out_length);
 
     *out_length = szbuf->length;
     return szbuf->buf;
 }
-
-void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
+void rpc_sizedbuf_free_internals(rpc_sizedbuf_t szbuf){
     if(szbuf){
         free(szbuf->buf);
-        free(szbuf);
+    }
+}
+void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
+    if(szbuf){
+        prec_t prec = prec_get(szbuf);
+        if(prec) {prec_delete(prec);}
+        else{
+            rpc_sizedbuf_free_internals(szbuf);
+            free(szbuf);
+        }
     }
 }
 

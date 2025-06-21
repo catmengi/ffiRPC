@@ -61,12 +61,6 @@ typedef struct{
     struct sc_queue_int empty_origins;
 }rpc_struct_prec_ctx;
 
-typedef struct{
-    hashtable* keys;
-    rpc_struct_free_cb free;
-    pthread_mutex_t lock;
-}rpc_struct_prec_ptr_ctx;
-
 static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
 
 rpc_struct_t rpc_struct_create(void){
@@ -98,6 +92,10 @@ void rpc_struct_add_destructor(rpc_struct_t rpc_struct, rpc_struct_destructor ma
     if(rpc_struct){
         rpc_struct->manual_destructor = manual_destructor;
     }
+}
+
+INTERNAL_API size_t rpc_struct_memsize(){
+    return sizeof(struct _rpc_struct);
 }
 //======================== ptracker callbacks code, aka magic!
 
@@ -211,7 +209,7 @@ struct prec_callbacks rpc_struct_default_prec_cbs = {
 
 //=====================================================
 
-static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
+void rpc_struct_free_internals(rpc_struct_t rpc_struct){
     if(rpc_struct){
         if(rpc_struct->manual_destructor) rpc_struct->manual_destructor(rpc_struct);
         pthread_mutex_lock(&rpc_struct->lock);
@@ -222,8 +220,12 @@ static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
         }
         pthread_mutex_unlock(&rpc_struct->lock);
         hashtable_destroy(rpc_struct->ht);
-        free(rpc_struct);
     }
+}
+
+static void rpc_struct_free_internal(rpc_struct_t rpc_struct){
+    rpc_struct_free_internals(rpc_struct);
+    free(rpc_struct);
 }
 
 void rpc_struct_free(rpc_struct_t rpc_struct){
@@ -580,8 +582,6 @@ bad_exit:
     return NULL;
 }
 
-#define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
-
 rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     pthread_mutex_lock(&original->lock);
     rpc_struct_t copy = rpc_struct_create();
@@ -608,6 +608,52 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
                     .free = rpc_freefn_of(element->type),
                 };
                 prec_increment(prec_get(element->data),&udat);
+            }
+        }
+    }
+    copy->copyof = original;
+    pthread_mutex_unlock(&original->lock);
+    return copy;
+}
+rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
+    pthread_mutex_lock(&original->lock);
+    rpc_struct_t copy = rpc_struct_create();
+
+    copy->ht->capacity = original->ht->capacity;
+    copy->ht->size = original->ht->size;
+    assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
+    memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
+
+    for(size_t i = 0; i < copy->ht->capacity; i++){
+        if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
+            copy->ht->body[i].key = strdup(copy->ht->body[i].key); //recoping keys because it WILL cause double-free if we not done this
+            copy->ht->body[i].value = copy((struct rpc_container_element*)copy->ht->body[i].value);
+
+            struct rpc_container_element* element = copy->ht->body[i].value;
+            if(!rpc_is_pointer(element->type) || element->type == RPC_string){
+                void* tmp = malloc(element->length); assert(tmp);
+                memcpy(tmp,element->data,element->length);
+                element->data = tmp;
+            } else if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
+                switch(element->type){
+                    case RPC_struct:
+                        element->data = rpc_struct_deep_copy(element->data);
+                        break;
+                    case RPC_sizedbuf:
+                        element->data = rpc_sizedbuf_copy(element->data);
+                        break;
+                    case RPC_function:
+                        element->data = rpc_function_copy(element->data);
+                        break;
+
+                    default:break;
+                }
+                prec_rpc_udata udat = {
+                    .name = copy->ht->body[i].key,
+                    .origin = copy,
+                    .free = rpc_freefn_of(element->type)
+                };
+                prec_increment(prec_new(element->data,rpc_struct_default_prec_cbs),&udat);
             }
         }
     }
@@ -740,4 +786,8 @@ void rpc_struct_manual_unlock(rpc_struct_t rpc_struct){
     if(rpc_struct){
         pthread_mutex_unlock(&rpc_struct->lock);
     }
+}
+
+int rpc_struct_is_refcounted(void* ptr){
+    return prec_get(ptr) == NULL ? 0 : 1;
 }

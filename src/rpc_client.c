@@ -1,0 +1,289 @@
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+#include "../include/rpc_client.h"
+#include "../include/rpc_struct.h"
+#include "../include/rpc_server_internal.h"
+#include "../include/rpc_object_internal.h"
+
+#include <ffi.h>
+#include <assert.h>
+#include <pthread.h>
+#include <stdint.h>
+
+
+struct _rpc_client{
+    void* connection_userdata; //TCP socket or persondata for local connection
+    rpc_struct_t (*method_request)(rpc_client_t client, rpc_struct_t request);
+    void (*userdata_free)(rpc_client_t client);
+    void (*error_handler)(rpc_client_t client, int error);
+    void (*disconnect)(rpc_client_t client);
+    rpc_struct_t loaded_cobjects;
+};
+
+typedef struct{
+    int fd;
+    pthread_t ping;
+}*tcp_userdata;
+
+rpc_client_t rpc_client_create(){
+    rpc_client_t client = calloc(1,sizeof(*client));
+    client->loaded_cobjects = rpc_struct_create();
+    assert(client);
+
+    return client;
+}
+void rpc_client_free(rpc_client_t client){
+    rpc_struct_free(client->loaded_cobjects);
+    if(client->disconnect) client->disconnect(client);
+
+    free(client);
+}
+
+int rpc_client_connect_tcp(rpc_client_t client, char* host){
+    //TODO: implementation
+    return 1;
+}
+
+static rpc_struct_t local_requestor(rpc_client_t client, rpc_struct_t request){
+    int ret = 0;
+    rpc_struct_t reply = rpc_struct_create();
+
+    if((ret = rpc_server_localnet_job(client->connection_userdata,request,reply)) != 0){
+        rpc_struct_free(reply);
+        reply = NULL;
+    }
+    rpc_struct_free(request);
+    return reply;
+}
+static void local_userdata_free(rpc_client_t client){
+    rpc_struct_free(client->connection_userdata);
+}
+
+void rpc_client_connect_local(rpc_client_t client){
+    client->connection_userdata = rpc_struct_create();
+
+    assert(rpc_struct_set(client->connection_userdata, "lobjects", rpc_struct_create()) == 0);
+    client->method_request = local_requestor;
+    client->userdata_free = local_userdata_free;
+}
+
+typedef struct{
+    rpc_client_t client;
+    char* fn_name;
+    rpc_function_t fetched_fn; //just to same some time on rpc_struct_get
+    rpc_struct_t cobj; //parent object of fn
+
+    ffi_cif* cif;
+    ffi_closure* closure;
+    ffi_type** ffi_prototype;
+
+    pthread_mutex_t lock;
+}*rpc_closure_udata;
+
+static void cobj_destructor(rpc_struct_t cobj){
+    rpc_struct_manual_lock(cobj);
+    char** keys = rpc_struct_keys(cobj);
+    size_t cobj_length = rpc_struct_length(cobj);
+    for(size_t i = 0; i < cobj_length; i++){
+        rpc_closure_udata closure_data = NULL;
+        assert(rpc_struct_get(cobj, keys[i], closure_data) == 0);
+
+        ffi_closure_free(closure_data->closure);
+        free(closure_data->cif);
+        free(closure_data->ffi_prototype);
+        free(closure_data);
+    }
+    free(keys);
+    rpc_struct_manual_lock(cobj);
+}
+static void closurefy(rpc_client_t client, rpc_struct_t cobj);
+static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata){
+    rpc_closure_udata my_data = udata;
+    pthread_mutex_lock(&my_data->lock);
+    rpc_struct_manual_lock(my_data->cobj);
+
+    enum rpc_types* prototype = rpc_function_get_prototype(my_data->fetched_fn);
+    int prototype_len = rpc_function_get_prototype_len(my_data->fetched_fn);
+
+    rpc_struct_t request = rpc_struct_create();
+    rpc_struct_t call_request = rpc_struct_create();
+    rpc_struct_t fn_args = rpc_struct_create();
+
+    hashtable* to_update = hashtable_create();
+
+    struct sc_queue_ptr freed_manually;
+    struct sc_queue_ptr manual_freefns;
+
+    sc_queue_init(&freed_manually);
+    sc_queue_init(&manual_freefns);
+
+    for(int i = 0; i < prototype_len; i++){
+        assert(prototype[i] != RPC_none); //check your server bro
+        char args_acc[sizeof(int) * 4];
+        sprintf(args_acc, "%d", i);
+
+        switch(prototype[i]){
+            case RPC_number:
+                assert(rpc_struct_set(fn_args,args_acc,(*(uint64_t*)args[i])) == 0);
+                break;
+            case RPC_real:
+                assert(rpc_struct_set(fn_args,args_acc,(*(double*)args[i])) == 0);
+                break;
+            default:{ //some type system fuckery to not write giant switch-case xD
+                assert(rpc_is_pointer(prototype[i]));
+                int was_refcounted = rpc_struct_is_refcounted(*(void**)args[i]);
+                struct rpc_container_element* element = malloc(sizeof(*element)); assert(element);
+                element->type = prototype[i];
+                element->data = *(void**)args[i];
+                element->length = sizeof(void*); //it is pointer, why not to use void* as size?. NOTE: if this is RPC_string, then rpc_struct_set_internal fill the length for us
+
+                assert(rpc_struct_set_internal(fn_args,args_acc,element) == 0);
+                if(was_refcounted == 0 && prototype[i] != RPC_string && prototype[i] != RPC_unknown){
+                    rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(element->data)); assert(ctx); //так надо
+
+                    sc_queue_add_last(&manual_freefns, ctx->free);
+                    sc_queue_add_last(&freed_manually, element->data);
+                    assert(sc_queue_size(&manual_freefns) == sc_queue_size(&freed_manually)); //dont trust this queue.....
+
+                    ctx->free = NULL; //disabling reference counted free for this element if it wasnt reference counted before rpc_struct_set_internal
+                }
+                hashtable_set(to_update, strdup(args_acc), args[i]);
+            }
+            break;
+        }
+    }
+
+    assert(rpc_struct_set(call_request, "object", rpc_struct_id_get(my_data->cobj)) == 0);
+    assert(rpc_struct_set(call_request, "function", my_data->fn_name) == 0);
+    assert(rpc_struct_set(call_request, "params", fn_args) == 0);
+
+    assert(rpc_struct_set(request, "method", (char*)"call") == 0);
+    assert(rpc_struct_set(request, "params", call_request) == 0);
+
+    rpc_struct_t reply = my_data->client->method_request(my_data->client, request);
+    if(reply){
+    }else{
+        if(my_data->client->error_handler)
+            my_data->client->error_handler(my_data->client, ERR_RPC_CALL_FAIL);
+    }
+
+    rpc_struct_free(reply);
+    hashtable_destroy(to_update);
+
+    for(size_t i = 0; i < sc_queue_size(&freed_manually); i++){
+        ((void(*)(void*))sc_queue_del_first(&manual_freefns))(sc_queue_del_first(&freed_manually));
+    }
+    sc_queue_term(&freed_manually);
+    sc_queue_term(&manual_freefns);
+
+    pthread_mutex_unlock(&my_data->lock);
+    rpc_struct_manual_unlock(my_data->cobj);
+}
+
+static void closurefy(rpc_client_t client, rpc_struct_t cobj){
+    rpc_struct_manual_lock(cobj); //to be sure that no one will touch it from another thread!
+
+    char** cobj_keys = rpc_struct_keys(cobj);
+    rpc_struct_t cif_storage = rpc_struct_create();
+    char cif_storage_key[sizeof(size_t) * 4];
+    for(size_t i = 0; i < rpc_struct_length(cobj); i++){
+        if(rpc_struct_typeof(cobj,cobj_keys[i]) == RPC_function){
+            rpc_function_t fn = NULL;
+            assert(rpc_struct_get(cobj, cobj_keys[i], fn) == 0);
+
+            rpc_closure_udata closure_data = calloc(1,sizeof(*closure_data)); assert(closure_data);
+
+            void* callable_addr = NULL;
+            closure_data->client = client;
+            closure_data->closure = ffi_closure_alloc(sizeof(*closure_data->closure), &callable_addr); assert(closure_data->closure);
+            closure_data->cif = malloc(sizeof(*closure_data->cif)); assert(closure_data->cif);
+            closure_data->cobj = cobj;
+            closure_data->fetched_fn = fn;
+
+            pthread_mutexattr_t attr = {0};
+            pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+            pthread_mutex_init(&closure_data->lock, &attr);
+
+            closure_data->fn_name = cobj_keys[i]; //if you manualy remove something from cobj then you really know that you would not mess up it, or you a DUMB
+
+            ffi_type** ffi_prototype = malloc(sizeof(*ffi_prototype) *rpc_function_get_prototype_len(fn)); assert(ffi_prototype);
+            enum rpc_types* rpc_prototype = rpc_function_get_prototype(fn);
+            for(int j = 0; j < rpc_function_get_prototype_len(fn); j++){
+                ffi_prototype[j] = rpctype_to_libffi[rpc_prototype[j]];
+            }
+            closure_data->ffi_prototype = ffi_prototype;
+
+            ffi_type* ffi_return = rpctype_to_libffi[rpc_function_get_return_type(fn)];
+
+            assert(ffi_prep_cif(closure_data->cif, FFI_DEFAULT_ABI,rpc_function_get_prototype_len(fn),ffi_return,ffi_prototype) == FFI_OK);
+            assert(ffi_prep_closure_loc(closure_data->closure, closure_data->cif,call_rpc_closure,closure_data,callable_addr) == FFI_OK);
+
+            rpc_function_set_fnptr(fn,callable_addr);
+
+            sprintf(cif_storage_key,"%zu",i);
+
+            rpc_struct_set(cif_storage, cif_storage_key, closure_data);
+        }
+    }
+    free(cobj_keys);
+    rpc_struct_set(cobj,"cif_storage",cif_storage);
+    rpc_struct_add_destructor(cif_storage,cobj_destructor);
+    rpc_struct_manual_unlock(cobj);
+}
+rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name){
+    rpc_struct_t cobj = NULL;
+    rpc_struct_t request = rpc_struct_create();
+    rpc_struct_t reply = NULL;
+
+    assert(rpc_struct_set(request, "method", (char*)"get_object") == 0);
+
+    rpc_struct_t method_params = rpc_struct_create();
+    assert(rpc_struct_set(request,"params", method_params) == 0);
+    assert(rpc_struct_set(method_params,"object",cobj_name) == 0);
+
+    reply = client->method_request(client, request);
+    if(reply){
+        if(rpc_struct_exists(reply, "error") == 0){
+            rpc_struct_t reply_cobj = NULL;
+            assert(rpc_struct_get(reply, "object",reply_cobj) == 0);
+
+            cobj = rpc_struct_deep_copy(reply_cobj); //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server!
+            rpc_struct_id_set(cobj, rpc_struct_id_get(reply_cobj));
+
+            if(rpc_struct_set(client->loaded_cobjects, rpc_struct_id_get(cobj), cobj) != 0){
+                rpc_struct_t old = NULL;
+                assert(rpc_struct_get(client->loaded_cobjects, rpc_struct_id_get(cobj), old) == 0);
+                rpc_struct_free(old);
+
+                assert(rpc_struct_set(client->loaded_cobjects, rpc_struct_id_get(cobj), cobj) == 0);
+            }
+
+            closurefy(client, cobj);
+        }
+    }
+exit:
+    rpc_struct_free(reply);
+    return cobj;
+}

@@ -24,6 +24,8 @@
 
 #pragma  once
 
+#define INTERNAL_API
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <jansson.h>
@@ -35,8 +37,13 @@ rpc_sizedbuf_t rpc_sizedbuf_create(char* buf, size_t length); //creates a new si
 char* rpc_sizedbuf_getbuf(rpc_sizedbuf_t szbuf, size_t* out_length); //return copyed "buf" from rpc_sizedbuf_create, in out_length will be placed its length
 
 void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf); //free sizedbuf and copyed "buf"
+INTERNAL_API void rpc_sizedbuf_free_internals(rpc_sizedbuf_t szbuf);
 
 uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf); //return a hash of szbuf
 
 json_t* rpc_sizedbuf_serialize(rpc_sizedbuf_t szbuf);
 rpc_sizedbuf_t rpc_sizedbuf_deserialize(json_t* json);
+
+rpc_sizedbuf_t rpc_sizedbuf_copy(rpc_sizedbuf_t szbuf);
+
+INTERNAL_API size_t rpc_sizedbuf_memsize();

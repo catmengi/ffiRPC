@@ -128,6 +128,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with ke
   * @return Pointer to the new copy
   */
 rpc_struct_t rpc_struct_copy(rpc_struct_t original); //returns a copy of "original"
+rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original); //returns a copy of "orginal" but nested elements are also copyed
 
 /**
  * @brief Gets the number of elements in an RPC structure
@@ -212,6 +213,8 @@ void rpc_struct_id_set(rpc_struct_t rpc_struct, char ID[RPC_STRUCT_ID_SIZE]); //
 
 void rpc_struct_manual_lock(rpc_struct_t rpc_struct); //manually locks almost all acesses to rpc_struct from other threads
 void rpc_struct_manual_unlock(rpc_struct_t rpc_struct);
+
+int rpc_struct_is_refcounted(void* ptr); //return is this element refcounted. 1 - is, 0 - not
 
 rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct); //return pointer to copy's original. NULL if not a copy
 /**

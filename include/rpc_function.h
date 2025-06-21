@@ -24,8 +24,10 @@
 
 
 #pragma once
+
 #include "rpc_struct.h"
 
+#define INTERNAL_API
 typedef struct _rpc_function* rpc_function_t;
 
 rpc_function_t rpc_function_create();
@@ -39,3 +41,6 @@ enum rpc_types* rpc_function_get_prototype(rpc_function_t fn);
 int rpc_function_get_prototype_len(rpc_function_t fn);
 enum rpc_types rpc_function_get_return_type(rpc_function_t fn);
 void rpc_function_set_return_type(rpc_function_t fn, enum rpc_types return_type);
+rpc_function_t rpc_function_copy(rpc_function_t fn);
+INTERNAL_API void rpc_function_free_internals(rpc_function_t fn);
+INTERNAL_API size_t rpc_function_memsize();

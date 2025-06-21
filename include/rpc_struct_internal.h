@@ -30,6 +30,8 @@
 #include "sc_queue.h"
 #include "rpc_struct.h"
 
+#define INTERNAL_API
+
 struct rpc_container_element{
     void* data;
     size_t length;
@@ -43,10 +45,19 @@ typedef struct{
     rpc_struct_free_cb free;
 }prec_rpc_udata;
 
-extern char ID_alphabet[37];
-extern struct prec_callbacks rpc_struct_default_prec_cbs;
-rpc_struct_free_cb rpc_freefn_of(enum rpc_types type);
+typedef struct{
+    hashtable* keys;
+    rpc_struct_free_cb free;
+    pthread_mutex_t lock;
+}rpc_struct_prec_ptr_ctx;
 
+INTERNAL_API extern char ID_alphabet[37];
+INTERNAL_API extern struct prec_callbacks rpc_struct_default_prec_cbs;
+INTERNAL_API rpc_struct_free_cb rpc_freefn_of(enum rpc_types type);
+INTERNAL_API void rpc_struct_free_internals(rpc_struct_t rpc_struct); //same as rpc_struct_free but doesnt call free on rpc_struct_t
+INTERNAL_API size_t rpc_struct_memsize();
+
+#define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
 #define c_to_rpc(element,var)({\

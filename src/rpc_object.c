@@ -52,7 +52,7 @@ static void rpc_object_thread_init(){
     }
 }
 
-int rpc_cobject_add(char* cobj_name, rpc_struct_t cobj){
+int rpc_cobject_set(char* cobj_name, rpc_struct_t cobj){
     int ret = 1;
 
     if((ret = rpc_struct_set(RO_cobject_bname, cobj_name, cobj)) == 0){
@@ -82,47 +82,6 @@ static rpc_struct_t rpc_cobject_peek(){
 static void rpc_cobject_pop(){
     rpc_object_thread_init();
     sc_queue_del_first(&RO_object_stack);
-}
-
-rpc_struct_t rpc_lobject_get_GOTO(){
-    rpc_object_thread_init();
-    rpc_struct_t ret = NULL;
-    rpc_struct_t new = NULL;
-    if(RO_lobjects){
-        rpc_struct_t current_cobject = rpc_cobject_peek();
-        if(current_cobject){
-            char* cobj_id = rpc_struct_id_get(current_cobject);
-get:
-            if(rpc_struct_get(RO_lobjects,cobj_id,ret) != 0){
-                if(rpc_struct_exists(RO_lobjects,cobj_id) == 0){
-                    new = rpc_struct_create();
-                    rpc_struct_set(RO_lobjects,cobj_id,new);
-                }
-                goto get;
-            }
-            if(ret != new) rpc_struct_free(new);
-        }
-    }
-    return ret;
-}
-
-rpc_struct_t rpc_lobject_get_GPT(){
-    rpc_object_thread_init();
-    rpc_struct_t ret = NULL;
-    if(RO_lobjects){
-        rpc_struct_t current_cobject = rpc_cobject_peek();
-        if(current_cobject){
-            char* c_id = rpc_struct_id_get(current_cobject);
-            if(rpc_struct_get(RO_lobjects, c_id, ret) != 0){
-                rpc_struct_t new = rpc_struct_create();      // <-- здесь выделение памяти
-                if(rpc_struct_set(RO_lobjects, c_id, new) != 0){
-                    rpc_struct_free(new);                     // освобождаем при ошибке вставки
-                    assert(rpc_struct_get(RO_lobjects, c_id, ret) == 0);
-                } else ret = new;
-            }
-        }
-    }
-    return ret;
 }
 
 rpc_struct_t rpc_lobject_get(){
@@ -163,7 +122,7 @@ void rpc_lobjects_load(rpc_struct_t lobjects){
 
 //RPC object call ==============================================
 
-static ffi_type* rpctype_to_libffi[RPC_unknown + 1] = {
+ffi_type* rpctype_to_libffi[RPC_unknown + 1] = {
     &ffi_type_void,   &ffi_type_uint64,
     &ffi_type_double, &ffi_type_pointer,
     &ffi_type_pointer,&ffi_type_pointer,
@@ -190,18 +149,18 @@ static int proto_equals(enum rpc_types* sproto, int sproto_len, rpc_struct_t cl_
     return 1;
 }
 
-int rpc_cobject_call(rpc_struct_t obj, char* fn_name, rpc_struct_t params, rpc_struct_t output){
-    if(obj == NULL) return ERR_RPC_DOESNT_EXIST;
+int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_struct_t output){
+    if(cobj == NULL) return ERR_RPC_DOESNT_EXIST;
 
     rpc_function_t fn = NULL;
-    if(rpc_struct_get(obj, fn_name, fn)) return ERR_RPC_DOESNT_EXIST;
+    if(rpc_struct_get(cobj, fn_name, fn)) return ERR_RPC_DOESNT_EXIST;
 
     if(!proto_equals(rpc_function_get_prototype(fn),rpc_function_get_prototype_len(fn),params)) return ERR_RPC_PROTOTYPE_DIFFERENT;
 
     ffi_cif cif;
     ffi_type** ffi_prototype = malloc(sizeof(*ffi_prototype) * rpc_struct_length(params)); assert(ffi_prototype);
 
-    char el[sizeof(int) * 4];
+    char el[sizeof(int) * 4]; //TODO: cache libffi prototype in obj
     for(int i = 0; i < rpc_struct_length(params); i++){
         sprintf(el,"%d",i);
         ffi_prototype[i] = rpctype_to_libffi[rpc_struct_typeof(params,el)];
@@ -248,7 +207,7 @@ int rpc_cobject_call(rpc_struct_t obj, char* fn_name, rpc_struct_t params, rpc_s
     void* return_is = NULL;
     uint64_t ffi_return = 0;
 
-    rpc_cobject_push(obj);
+    rpc_cobject_push(cobj);
     ffi_call(&cif,rpc_function_get_fnptr(fn),&ffi_return,ffi_arguments);
     rpc_cobject_pop();
 
