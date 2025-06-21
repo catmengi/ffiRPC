@@ -19,6 +19,7 @@ set(SRC
     ${SRC_DIR}/rpc_function.c
     ${SRC_DIR}/rpc_struct.c
     ${SRC_DIR}/rpc_thread_context.c
+    ${SRC_DIR}/rpc_client.c
     ${SRC_DIR}/hashtable.c
 )
 
