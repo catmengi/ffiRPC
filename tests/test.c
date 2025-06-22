@@ -260,13 +260,16 @@ void adv_free_test_sz(){
     rpc_struct_free(cont);
 }
 
-void test(rpc_struct_t rpc){
+rpc_struct_t test(rpc_struct_t rpc){
+    puts("TEST FUNCTION SUCCESSFULLY INVOKED!");
+    rpc_struct_set(rpc, "test_str", (char*)"gjweruiojgikouerwjgioerejgerio");
+    return rpc;
 }
 void obj_init(){
     rpc_struct_t new_cobj = rpc_struct_create();
 
     rpc_function_t fn = rpc_function_create();
-    rpc_function_set_return_type(fn,RPC_none);
+    rpc_function_set_return_type(fn,RPC_struct);
     rpc_function_set_prototype(fn,(enum rpc_types[]){RPC_struct},1);
     rpc_function_set_fnptr(fn,test);
 
@@ -297,8 +300,16 @@ int main(){
      rpc_function_t fn = NULL;
      assert(rpc_struct_get(cobj, "puts", fn) == 0);
 
-     ((void (*)(rpc_struct_t))rpc_function_get_fnptr(fn))(rpc_struct_create());
+     rpc_struct_t debug = rpc_struct_create();
+
+     rpc_struct_t refdbg = rpc_struct_create();
+     rpc_struct_set(refdbg, "dbg", debug);
+
+     rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t))rpc_function_get_fnptr(fn))(debug);
+
+     rpc_struct_free(check);
 
      rpc_struct_free(cobj);
      rpc_client_free(client);
+     rpc_struct_free(refdbg);
 }

@@ -56,6 +56,7 @@ INTERNAL_API extern struct prec_callbacks rpc_struct_default_prec_cbs;
 INTERNAL_API rpc_struct_free_cb rpc_freefn_of(enum rpc_types type);
 INTERNAL_API void rpc_struct_free_internals(rpc_struct_t rpc_struct); //same as rpc_struct_free but doesnt call free on rpc_struct_t
 INTERNAL_API size_t rpc_struct_memsize();
+INTERNAL_API void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*));
 
 #define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;

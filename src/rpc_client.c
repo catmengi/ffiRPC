@@ -118,6 +118,16 @@ static void cobj_destructor(rpc_struct_t cobj){
     free(keys);
     rpc_struct_manual_lock(cobj);
 }
+typedef struct{
+    int was_refcounted; //was it reference counted before we set it into arguments
+    void* closure_arg;
+}*arg_update_info;
+
+typedef struct{
+    void (*free_fn)(void*);
+    void* free;
+}*manual_free_info;
+
 static void closurefy(rpc_client_t client, rpc_struct_t cobj);
 static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata){
     rpc_closure_udata my_data = udata;
@@ -132,12 +142,6 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     rpc_struct_t fn_args = rpc_struct_create();
 
     hashtable* to_update = hashtable_create();
-
-    struct sc_queue_ptr freed_manually;
-    struct sc_queue_ptr manual_freefns;
-
-    sc_queue_init(&freed_manually);
-    sc_queue_init(&manual_freefns);
 
     for(int i = 0; i < prototype_len; i++){
         assert(prototype[i] != RPC_none); //check your server bro
@@ -162,14 +166,17 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                 assert(rpc_struct_set_internal(fn_args,args_acc,element) == 0);
                 if(was_refcounted == 0 && prototype[i] != RPC_string && prototype[i] != RPC_unknown){
                     rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(element->data)); assert(ctx); //так надо
-
-                    sc_queue_add_last(&manual_freefns, ctx->free);
-                    sc_queue_add_last(&freed_manually, element->data);
-                    assert(sc_queue_size(&manual_freefns) == sc_queue_size(&freed_manually)); //dont trust this queue.....
-
                     ctx->free = NULL; //disabling reference counted free for this element if it wasnt reference counted before rpc_struct_set_internal
                 }
-                hashtable_set(to_update, strdup(args_acc), args[i]);
+                char ptr_acc[sizeof(void*) * 4];
+                sprintf(ptr_acc, "%p", element->data);
+
+                arg_update_info arg_info = malloc(sizeof(*arg_info)); assert(arg_info);
+                arg_info->was_refcounted = was_refcounted;
+                arg_info->closure_arg = args[i];
+
+
+                hashtable_set(to_update, strdup(ptr_acc), arg_info);
             }
             break;
         }
@@ -182,21 +189,147 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     assert(rpc_struct_set(request, "method", (char*)"call") == 0);
     assert(rpc_struct_set(request, "params", call_request) == 0);
 
+    size_t to_update_size = to_update->size;
+    char** to_update_keys = hashtable_get_keys(to_update);
     rpc_struct_t reply = my_data->client->method_request(my_data->client, request);
     if(reply){
+        enum rpc_types return_type = rpc_struct_typeof(reply,"return");
+        assert(return_type == rpc_function_get_return_type(my_data->fetched_fn));
+
+        struct rpc_container_element* element = rpc_struct_get_internal(reply,"return"); //i dont want to deal with type system fuckery or rpc_struct_get_unsafe
+        void* return_fill_later = NULL;
+
+        if(return_type != RPC_none){
+            if(rpc_is_pointer(return_type)){
+                if(return_type != RPC_string && return_type != RPC_unknown){
+                    return_fill_later = element->data;
+                } else {
+                    *(ffi_arg*)ret = (ffi_arg)element->data;
+                }
+            } else {
+                memcpy(ret,element->data, element->length > my_data->cif->rtype->size ? my_data->cif->rtype->size : element->length);
+            }
+        }
+
+        for(size_t i = 0; i < to_update_size; i++){
+            arg_update_info info = hashtable_get(to_update, to_update_keys[i]);
+            struct rpc_container_element* element = rpc_struct_get_internal(reply,to_update_keys[i]);
+            if(element){ //we should expect that not all arguments will be sent back, only thoose which hash was has changed, if you changed it and it wasnt replyed, check hash function of your type!
+                switch(element->type){
+                    case RPC_string:
+                        memcpy(*(void**)info->closure_arg, element->data, strlen(element->data) > strlen(*(void**)info->closure_arg) ? strlen(*(void**)info->closure_arg) : strlen(element->data));
+                        break;
+                    case RPC_struct:{
+                        if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
+                            rpc_struct_free_internals(*(void**)info->closure_arg);
+
+                        memcpy(*(void**)info->closure_arg, element->data, rpc_struct_memsize());
+
+                        if(element->data == return_fill_later){
+                            prec_t rfl_prec = prec_get(return_fill_later);
+                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
+                                if(info == NULL || info->was_refcounted == 0){
+                                    rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
+                                }
+                                return_fill_later = *(void**)info->closure_arg;
+                            }
+                        }
+                        prec_t ctx_del_prec = prec_get(element->data);
+                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
+                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
+                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
+                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
+                        }
+                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
+                    }
+                    break;
+                    case RPC_sizedbuf:{
+                        if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
+                            rpc_sizedbuf_free_internals(*(void**)info->closure_arg);
+
+                        memcpy(*(void**)info->closure_arg, element->data, rpc_sizedbuf_memsize());
+
+                        if(element->data == return_fill_later){
+                            prec_t rfl_prec = prec_get(return_fill_later);
+                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
+                                if(info == NULL || info->was_refcounted == 0){
+                                    rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
+                                }
+                                return_fill_later = *(void**)info->closure_arg;
+                            }
+                        }
+                        prec_t ctx_del_prec = prec_get(element->data);
+                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
+                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
+                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
+                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
+                        }
+                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
+                    }
+                    break;
+                    case RPC_function:{
+                        if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
+                            rpc_function_free_internals(*(void**)info->closure_arg);
+
+                        memcpy(*(void**)info->closure_arg, element->data, rpc_function_memsize());
+
+                        if(element->data == return_fill_later){
+                            prec_t rfl_prec = prec_get(return_fill_later);
+                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
+                                if(info == NULL || info->was_refcounted == 0){
+                                    rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
+                                }
+                                return_fill_later = *(void**)info->closure_arg;
+                            }
+                        }
+                        prec_t ctx_del_prec = prec_get(element->data);
+                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
+                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
+                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
+                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
+                        }
+                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
+                    }
+                    break;
+
+
+                    default: break; //do nothing, and also to shut-up clangd
+                }
+            }
+        }
+
+        if(return_fill_later){
+            char rfl_acc[sizeof(void*) * 4];
+            sprintf(rfl_acc, "%p", return_fill_later);
+
+            arg_update_info arg_info = hashtable_get(to_update,rfl_acc);
+            if(arg_info == NULL || arg_info->was_refcounted == 0){
+                rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(return_fill_later));
+                if(ctx) ctx->free = NULL; //are you sure? Yes i am. But really, we dont want the return value to be controled by someone else.....
+            }
+
+            *(ffi_arg*)ret = (ffi_arg)return_fill_later;
+        }
     }else{
-        if(my_data->client->error_handler)
+        if(my_data->client->error_handler){
+            puts("terrible call error happended, we dont even know what xD");
             my_data->client->error_handler(my_data->client, ERR_RPC_CALL_FAIL);
+        }
     }
 
     rpc_struct_free(reply);
-    hashtable_destroy(to_update);
 
-    for(size_t i = 0; i < sc_queue_size(&freed_manually); i++){
-        ((void(*)(void*))sc_queue_del_first(&manual_freefns))(sc_queue_del_first(&freed_manually));
+    for(size_t i = 0; i < to_update_size; i++){
+        free(hashtable_get(to_update,to_update_keys[i]));
+        hashtable_remove(to_update,to_update_keys[i]);
+        free(to_update_keys[i]);
     }
-    sc_queue_term(&freed_manually);
-    sc_queue_term(&manual_freefns);
+
+    free(to_update_keys);
+    hashtable_destroy(to_update);
 
     pthread_mutex_unlock(&my_data->lock);
     rpc_struct_manual_unlock(my_data->cobj);
@@ -270,7 +403,6 @@ rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name){
             assert(rpc_struct_get(reply, "object",reply_cobj) == 0);
 
             cobj = rpc_struct_deep_copy(reply_cobj); //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server!
-            rpc_struct_id_set(cobj, rpc_struct_id_get(reply_cobj));
 
             if(rpc_struct_set(client->loaded_cobjects, rpc_struct_id_get(cobj), cobj) != 0){
                 rpc_struct_t old = NULL;

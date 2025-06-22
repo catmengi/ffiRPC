@@ -98,8 +98,7 @@ INTERNAL_API size_t rpc_struct_memsize(){
     return sizeof(struct _rpc_struct);
 }
 //======================== ptracker callbacks code, aka magic!
-
-static void rpc_struct_onzero_cb(prec_t prec){
+void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*)){ //not static because i need this one it client's code for argument updating
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
     if(ptr_ctx){
         pthread_mutex_lock(&ptr_ctx->lock);
@@ -111,7 +110,7 @@ static void rpc_struct_onzero_cb(prec_t prec){
                 for(int j = 0; j < ctx->o_index; j++){
                     if(ctx->origins[j]){
                         pthread_mutex_lock(&ctx->origins[j]->lock);
-                        rpc_struct_remove(ctx->origins[j],keys[i]);
+                        if(destroyer) destroyer(ctx->origins[j], keys[i]);
                         pthread_mutex_unlock(&ctx->origins[j]->lock);
                     }
                 }
@@ -131,6 +130,9 @@ static void rpc_struct_onzero_cb(prec_t prec){
         pthread_mutex_destroy(&ptr_ctx->lock);
         free(ptr_ctx);
     }
+}
+static void rpc_struct_onzero_cb(prec_t prec){
+    rpc_struct_prec_ctx_destroy(prec,(void (*)(void*, char*))rpc_struct_remove);
 }
 static void rpc_struct_increment_cb(prec_t prec, void* udata){
     if(udata){
@@ -583,8 +585,9 @@ bad_exit:
 }
 
 rpc_struct_t rpc_struct_copy(rpc_struct_t original){
-    pthread_mutex_lock(&original->lock);
+    rpc_struct_manual_lock(original);
     rpc_struct_t copy = rpc_struct_create();
+    rpc_struct_id_set(copy, rpc_struct_id_get(original));
 
     copy->ht->capacity = original->ht->capacity;
     copy->ht->size = original->ht->size;
@@ -612,17 +615,20 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
         }
     }
     copy->copyof = original;
-    pthread_mutex_unlock(&original->lock);
+    rpc_struct_manual_unlock(original);
     return copy;
 }
 rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
-    pthread_mutex_lock(&original->lock);
+    rpc_struct_manual_lock(original);
     rpc_struct_t copy = rpc_struct_create();
+    rpc_struct_id_set(copy, rpc_struct_id_get(original));
 
     copy->ht->capacity = original->ht->capacity;
     copy->ht->size = original->ht->size;
     assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
     memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
+
+    hashtable* dup_track = hashtable_create();
 
     for(size_t i = 0; i < copy->ht->capacity; i++){
         if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
@@ -635,16 +641,34 @@ rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
                 memcpy(tmp,element->data,element->length);
                 element->data = tmp;
             } else if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
+                char dup_key[sizeof(void*) * 4];
+                sprintf(dup_key, "%p", element->data);
+
                 switch(element->type){
-                    case RPC_struct:
-                        element->data = rpc_struct_deep_copy(element->data);
+                    case RPC_struct:{
+                            void* whose_dup = hashtable_get(dup_track, dup_key);
+                            if(whose_dup == NULL){
+                                element->data = rpc_struct_deep_copy(element->data);
+                                hashtable_set(dup_track, strdup(dup_key), element->data);
+                            } else element->data = whose_dup;
+                        }
                         break;
-                    case RPC_sizedbuf:
-                        element->data = rpc_sizedbuf_copy(element->data);
-                        break;
-                    case RPC_function:
-                        element->data = rpc_function_copy(element->data);
-                        break;
+                    case RPC_sizedbuf:{
+                        void* whose_dup = hashtable_get(dup_track, dup_key);
+                        if(whose_dup == NULL){
+                            element->data = rpc_sizedbuf_copy(element->data);
+                            hashtable_set(dup_track, strdup(dup_key), element->data);
+                        } else element->data = whose_dup;
+                    }
+                    break;
+                    case RPC_function:{
+                        void* whose_dup = hashtable_get(dup_track, dup_key);
+                        if(whose_dup == NULL){
+                            element->data = rpc_function_copy(element->data);
+                            hashtable_set(dup_track, strdup(dup_key), element->data);
+                        } else element->data = whose_dup;
+                    }
+                    break;
 
                     default:break;
                 }
@@ -653,12 +677,22 @@ rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
                     .origin = copy,
                     .free = rpc_freefn_of(element->type)
                 };
-                prec_increment(prec_new(element->data,rpc_struct_default_prec_cbs),&udat);
+                prec_t prec = prec_get(element->data);
+                if(prec == NULL) prec = prec_new(element->data,rpc_struct_default_prec_cbs);
+
+                prec_increment(prec,&udat);
             }
         }
     }
+    char** free_duptrack_keys = hashtable_get_keys(dup_track);
+    for(size_t i = 0; i < dup_track->size; i++){
+        free(free_duptrack_keys[i]);
+    }
+    free(free_duptrack_keys);
+    hashtable_destroy(dup_track);
+
     copy->copyof = original;
-    pthread_mutex_unlock(&original->lock);
+    rpc_struct_manual_unlock(original);
     return copy;
 }
 

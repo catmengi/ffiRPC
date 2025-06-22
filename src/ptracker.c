@@ -36,6 +36,8 @@ static hashtable* ptracker = NULL; //should be changed to void* keyed HT to prev
 
 struct _prec{
     void* ptr;
+
+    atomic_int context_refcount;
     void* context;
 
     struct prec_callbacks cbs;
@@ -50,7 +52,11 @@ prec_t prec_get(void* ptr){
     char acc[sizeof(void*) * 4];
     sprintf(acc,"%p",ptr);
 
-    return hashtable_get(ptracker,acc);
+    prec_t ret = hashtable_get(ptracker,acc);
+    if(ret){
+        ret->ptr = ptr; //this is for prec merge
+    }
+    return ret;
 }
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
@@ -61,6 +67,7 @@ prec_t prec_new(void* ptr, struct prec_callbacks cbs){
     new->ptr = ptr;
     new->refcount = 0; //always increment after new!
     new->context = NULL;
+    new->context_refcount = 1; //it will only be incremented on prec_merge
     new->cbs = cbs;
 
     char acc[sizeof(void*) * 4];
