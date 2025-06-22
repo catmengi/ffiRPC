@@ -179,6 +179,8 @@ int rpc_net_send_json(int fd, json_t* json){
         uint64_t send_len = strlen(send_string);
         if(send(fd,&send_len,sizeof(send_len), MSG_NOSIGNAL) != sizeof(send_len))  goto exit;
         if(send(fd,send_string,(size_t)send_len,MSG_NOSIGNAL) != (size_t)send_len) goto exit;
+
+        ret = 0;
     }
 exit:
     free(send_string);
@@ -211,14 +213,11 @@ static void net_read(int fd, void* ctx){
     rpc_net_person_t person = RN_persons[fd];
         if(person){
 
-            json_t* req_json = rpc_net_recv_json(fd);
-            rpc_struct_t req = rpc_struct_deserialize(req_json);
+            rpc_struct_t req = rpc_net_recv(fd);
             if(req){
                 sc_queue_add_last(&person->request_que,req);
                 if(holder->notify.notify) holder->notify.notify(person,holder->notify.userdata);
             } else {shutdown(fd, SHUT_RDWR); close(fd);}
-
-            json_decref(req_json);
         } else {shutdown(fd, SHUT_RDWR); close(fd);}
     } else {
         printf("%s :: %s:%d fd is BIGGER than RN_alloced_personsfd, BUG!\n",__PRETTY_FUNCTION__, __FILE__, __LINE__);
@@ -238,6 +237,16 @@ int rpc_net_send(int fd, rpc_struct_t tosend){
     json_decref(send);
 
     return ret;
+}
+
+rpc_struct_t rpc_net_recv(int fd){
+    json_t* json = rpc_net_recv_json(fd);
+    rpc_struct_t reply = NULL;
+    if(json){
+        reply = rpc_struct_deserialize(json);
+        json_decref(json);
+    }
+    return reply;
 }
 
 rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person){

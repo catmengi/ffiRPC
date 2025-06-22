@@ -27,5 +27,7 @@ include_directories(${PROJECT_SOURCE_DIR})
 
 add_library(${PROJECT_NAME} STATIC  ${SRC})
 
+target_compile_options(${PROJECT_NAME} PRIVATE -fno-omit-frame-pointer -fsanitize=address,undefined)
+target_link_options(${PROJECT_NAME} PRIVATE -fno-omit-frame-pointer -fsanitize=address,undefined)
 
 add_subdirectory(tests)

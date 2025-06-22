@@ -86,7 +86,7 @@ json_t* rpc_function_serialize(rpc_function_t fn){
         json_object_set_new(root,"prototype",array);
 
         for(int i = 0; i < fn->prototype_len; i++){
-            json_array_set_new(array,i,json_integer(fn->prototype[i]));
+            json_array_append_new(array,json_integer(fn->prototype[i]));
         }
     }
 

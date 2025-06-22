@@ -38,8 +38,6 @@
 
 #include "../include/poll_network.h"
 
-#define TIMEOUT 5
-
 struct poll_net{
     int active;
 

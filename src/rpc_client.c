@@ -26,11 +26,18 @@
 #include "../include/rpc_struct.h"
 #include "../include/rpc_server_internal.h"
 #include "../include/rpc_object_internal.h"
+#include "../include/rpc_network.h"
+#include "../include/poll_network.h"
+
+#include <netdb.h>
 
 #include <ffi.h>
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 
 
 struct _rpc_client{
@@ -45,6 +52,7 @@ struct _rpc_client{
 typedef struct{
     int fd;
     pthread_t ping;
+    pthread_mutex_t lock;
 }*tcp_userdata;
 
 rpc_client_t rpc_client_create(){
@@ -61,9 +69,95 @@ void rpc_client_free(rpc_client_t client){
     free(client);
 }
 
+static rpc_struct_t tcp_requestor(rpc_client_t client, rpc_struct_t request){
+    tcp_userdata tcp = client->connection_userdata;
+    rpc_struct_t reply = NULL;
+    pthread_mutex_lock(&tcp->lock);
+
+    if(rpc_net_send(tcp->fd, request) == 0){
+        reply = rpc_net_recv(tcp->fd);
+        if(reply == NULL){
+            if(client->error_handler) client->error_handler(client,ERR_RPC_DISCONNECT);
+            shutdown(tcp->fd,SHUT_RDWR);
+            close(tcp->fd);
+        }
+    }
+
+    pthread_mutex_unlock(&tcp->lock);
+    return reply;
+}
+static void* tcp_ping(rpc_client_t client){
+    tcp_userdata tcp = client->connection_userdata;
+
+    while(tcp->fd != -1){
+        pthread_mutex_lock(&tcp->lock);
+
+        rpc_struct_t request = rpc_struct_create();
+        assert(rpc_struct_set(request, "method", (char*)"ping") == 0);
+        rpc_struct_free(tcp_requestor(client,request));
+
+        pthread_mutex_unlock(&tcp->lock);
+        sleep(TIMEOUT - 1);
+    }
+    pthread_detach(pthread_self());
+
+    return NULL;
+}
+static void tcp_disconnect(rpc_client_t client){
+    tcp_userdata tcp = client->connection_userdata;
+    pthread_mutex_lock(&tcp->lock);
+    shutdown(tcp->fd,SHUT_RDWR);
+    close(tcp->fd);
+    tcp->fd = -1;
+    pthread_mutex_unlock(&tcp->lock);
+}
 int rpc_client_connect_tcp(rpc_client_t client, char* host){
-    //TODO: implementation
-    return 1;
+    int ret = 1;
+    if(host && client){
+        char* mod_host = strdup(host);
+        char* port = strchr(mod_host, ':');
+        if(port){
+            *port = '\0';
+            port++;
+
+            struct addrinfo hints = {0};
+            hints.ai_family = AF_UNSPEC;
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_flags = AI_NUMERICSERV;
+
+            struct addrinfo *info = NULL;
+            if(getaddrinfo(mod_host, port,&hints ,&info) == 0){
+                struct addrinfo *iter = info;
+                while(iter){
+                    int sockfd = socket(iter->ai_family, iter->ai_socktype, iter->ai_protocol);
+
+                    if(sockfd > 0){
+                        if(connect(sockfd, iter->ai_addr, iter->ai_addrlen) == 0){
+                            tcp_userdata tcp = malloc(sizeof(*tcp)); assert(tcp);
+                            tcp->fd = sockfd;
+                            assert(pthread_create(&tcp->ping,NULL,(void* (*)(void*))tcp_ping, client) == 0);
+
+                            pthread_mutexattr_t attr;
+                            pthread_mutexattr_init(&attr);
+                            pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+                            pthread_mutex_init(&tcp->lock,&attr);
+
+                            client->connection_userdata = tcp;
+                            client->method_request = tcp_requestor;
+                            client->disconnect = tcp_disconnect;
+
+                            ret = 0;
+                            break;
+                        } else close(sockfd);
+                    }
+                    iter = iter->ai_next;
+                }
+                freeaddrinfo(info);
+            }
+        }
+        free(mod_host);
+    }
+    return ret; //0 - ok, 1 - bad;
 }
 
 static rpc_struct_t local_requestor(rpc_client_t client, rpc_struct_t request){
@@ -324,6 +418,8 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                 if(ctx) ctx->free = NULL; //are you sure? Yes i am. But really, we dont want the return value to be controled by someone else.....
             }
 
+            //TODO: support of returning objects from server as function's retval!
+
             *(ffi_arg*)ret = (ffi_arg)return_fill_later;
         }
     }else{
@@ -432,7 +528,7 @@ rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name){
             rpc_struct_t reply_cobj = NULL;
             assert(rpc_struct_get(reply, "object",reply_cobj) == 0);
 
-            cobj = rpc_struct_deep_copy(reply_cobj); //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server!
+            cobj = rpc_struct_deep_copy(reply_cobj); //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server! otherwise it is waste of time
 
             if(rpc_struct_set(client->loaded_cobjects, rpc_struct_id_get(cobj), cobj) != 0){
                 rpc_struct_t old = NULL;

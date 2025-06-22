@@ -36,6 +36,7 @@
  * Minimum size for poll file descriptor array
  */
 #define MIN_POLLFD 128
+#define TIMEOUT 5
 
 /**
  * Callback functions for network events

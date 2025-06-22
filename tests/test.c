@@ -1,5 +1,6 @@
 #include "../include/rpc_struct.h"
 #include "../include/rpc_client.h"
+#include "../include/rpc_server.h"
 #include "../include/rpc_init.h"
 #include "../include/rpc_object.h"
 
@@ -29,22 +30,6 @@ void check_rpc_struct_onfree_remove(){
 }
 
 void check_rpc_struct_ids(){
-    // rpc_struct_t s = rpc_struct_create();
-    //
-    // char* IDo = rpc_struct_id_get(s);
-    //
-    // size_t u = 0;
-    // char* buf = rpc_struct_serialise(s, &u);
-    //
-    // rpc_struct_t n = rpc_struct_unserialise(buf); free(buf);
-    //
-    // assert(strcmp(IDo, rpc_struct_id_get(n)) == 0);
-    //
-    // puts(rpc_struct_id_get(s));
-    // puts(rpc_struct_id_get(n));
-    //
-    // rpc_struct_free(s);
-    // rpc_struct_free(n);
     rpc_struct_t ts = rpc_struct_create();
 
     rpc_struct_set(ts, "int", (int64_t)1488);
@@ -293,8 +278,11 @@ int main(){
      adv_free_test_sz();
      obj_init();
 
+     rpc_server_launch_port(2077);
+
      rpc_client_t client = rpc_client_create();
-     rpc_client_connect_local(client);
+     // rpc_client_connect_local(client);
+     assert(rpc_client_connect_tcp(client,"localhost:2077") == 0);
 
      rpc_struct_t cobj = rpc_client_cobject_get(client,"console");
 
@@ -318,4 +306,6 @@ int main(){
      rpc_struct_free(cobj);
      rpc_client_free(client);
      rpc_struct_free(refdbg);
+
+     rpc_server_stop_port(2077);
 }

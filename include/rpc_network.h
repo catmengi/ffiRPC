@@ -45,6 +45,7 @@ rpc_net_notifier_callback rpc_net_holder_get_notify(rpc_net_holder_t holder);
 int create_tcp_listenfd(short port);
 
 int rpc_net_send(int fd, rpc_struct_t tosend);
+rpc_struct_t rpc_net_recv(int fd);
 
 rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person);
 char* rpc_net_person_id(rpc_net_person_t person);

@@ -36,4 +36,5 @@ enum rpc_client_errors{
 rpc_client_t rpc_client_create();
 void rpc_client_free(rpc_client_t client);
 void rpc_client_connect_local(rpc_client_t client);
+int rpc_client_connect_tcp(rpc_client_t client, char* host);
 rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name);
