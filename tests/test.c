@@ -308,6 +308,11 @@ int main(){
 
      rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
 
+     assert(check == debug);
+
+     assert(rpc_struct_exists(check,"test_str") == 1);
+     assert(rpc_struct_exists(debug,"test_str") == 1);
+
      rpc_struct_free(check);
 
      rpc_struct_free(cobj);
