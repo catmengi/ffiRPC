@@ -171,12 +171,14 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                 char ptr_acc[sizeof(void*) * 4];
                 sprintf(ptr_acc, "%p", element->data);
 
-                arg_update_info arg_info = malloc(sizeof(*arg_info)); assert(arg_info);
-                arg_info->was_refcounted = was_refcounted;
-                arg_info->closure_arg = args[i];
+                if(hashtable_get(to_update,ptr_acc) == NULL){
+                    arg_update_info arg_info = malloc(sizeof(*arg_info)); assert(arg_info);
+                    arg_info->was_refcounted = was_refcounted;
+                    arg_info->closure_arg = args[i];
 
 
-                hashtable_set(to_update, strdup(ptr_acc), arg_info);
+                    hashtable_set(to_update, strdup(ptr_acc), arg_info);
+                }
             }
             break;
         }
@@ -241,7 +243,6 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                             ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                             prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                         }
-                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
                     }
                     break;
                     case RPC_sizedbuf:{
@@ -266,7 +267,6 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                             ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                             prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                         }
-                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
                     }
                     break;
                     case RPC_function:{
@@ -291,7 +291,6 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                             ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                             prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                         }
-                        //because let's say, you should pass one argument twice, because this will make this code 100% times harder and spaghhetier
                     }
                     break;
 
