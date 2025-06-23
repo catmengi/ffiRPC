@@ -23,8 +23,8 @@
 
 
 
-#include "../include/rpc_function.h"
-#include "../include/rpc_struct.h"
+#include <ffirpc/rpc_function.h>
+#include <ffirpc/rpc_struct.h>
 
 #include <assert.h>
 #include <jansson.h>

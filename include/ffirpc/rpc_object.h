@@ -21,26 +21,18 @@
 // SOFTWARE.
 
 
-
-
 #pragma once
 
-#include "rpc_struct.h"
+#include <ffirpc/rpc_struct.h>
 
-#define INTERNAL_API
-typedef struct _rpc_function* rpc_function_t;
+#ifdef RPC_INIT
+void rpc_object_init();
+#endif
 
-rpc_function_t rpc_function_create();
-void rpc_function_free(rpc_function_t fn);
-json_t* rpc_function_serialize(rpc_function_t fn);
-rpc_function_t rpc_function_deserialize(json_t* json);
-void* rpc_function_get_fnptr(rpc_function_t fn);
-void rpc_function_set_fnptr(rpc_function_t fn, void* fnptr);
-void rpc_function_set_prototype(rpc_function_t fn, enum rpc_types* prototype, int prototype_len);
-enum rpc_types* rpc_function_get_prototype(rpc_function_t fn);
-int rpc_function_get_prototype_len(rpc_function_t fn);
-enum rpc_types rpc_function_get_return_type(rpc_function_t fn);
-void rpc_function_set_return_type(rpc_function_t fn, enum rpc_types return_type);
-rpc_function_t rpc_function_copy(rpc_function_t fn);
-INTERNAL_API void rpc_function_free_internals(rpc_function_t fn);
-INTERNAL_API size_t rpc_function_memsize();
+rpc_struct_t rpc_lobject_get();
+
+int rpc_cobject_set(char* cobj_name, rpc_struct_t cobj);
+rpc_struct_t rpc_cobject_get(char* cobj_name);
+int rpc_cobject_remove(char* cobj_name); //SHOULD NEVER BE CALLED FROM RPC_FUNCTION!
+
+int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_struct_t output);

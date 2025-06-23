@@ -36,7 +36,7 @@
 
 #include <sys/resource.h>
 
-#include "../include/poll_network.h"
+#include <ffirpc/poll_network.h>
 
 struct poll_net{
     int active;

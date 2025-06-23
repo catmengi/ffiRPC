@@ -42,7 +42,7 @@
 #define SC_QUEUE_VERSION "2.0.0"
 
 #ifdef SC_HAVE_CONFIG_H
-#include "config.h"
+#include <ffirpc/config.h>
 #else
 #define sc_queue_calloc calloc
 #define sc_queue_free free

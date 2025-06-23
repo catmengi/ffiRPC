@@ -32,7 +32,7 @@
 #include <pthread_np.h>
 #endif
 
-#include "../../include/C-Thread-Pool/thpool.h"
+#include <ffirpc/C-Thread-Pool/thpool.h>
 
 #ifdef THPOOL_DEBUG
 #define THPOOL_DEBUG 1

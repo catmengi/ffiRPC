@@ -23,12 +23,12 @@
 
 
 
-#include "../include/rpc_struct.h"
-#include "../include/rpc_server.h"
-#include "../include/rpc_object.h"
-#include "../include/rpc_object_internal.h"
-#include "../include/rpc_network.h"
-#include "../include/C-Thread-Pool/thpool.h"
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_server.h>
+#include <ffirpc/rpc_object.h>
+#include <ffirpc/rpc_object_internal.h>
+#include <ffirpc/rpc_network.h>
+#include <ffirpc/C-Thread-Pool/thpool.h>
 
 #include <pthread.h>
 #include <sys/socket.h>

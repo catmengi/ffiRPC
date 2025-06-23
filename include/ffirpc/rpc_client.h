@@ -24,7 +24,7 @@
 
 
 #pragma once
-#include "rpc_struct.h"
+#include <ffirpc/rpc_struct.h>
 
 typedef struct _rpc_client* rpc_client_t;
 

@@ -22,8 +22,8 @@
 
 
 
-#include "../include/rpc_thread_context.h"
-#include "../include/hashtable.h"
+#include <ffirpc/rpc_thread_context.h>
+#include <ffirpc/hashtable.h>
 
 #include <assert.h>
 #include <pthread.h>

@@ -23,10 +23,10 @@
 
 
 
-#include "../include/rpc_struct.h"
-#include "../include/rpc_server.h"
-#include "../include/rpc_object.h"
-#include "../include/sc_queue.h"
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_server.h>
+#include <ffirpc/rpc_object.h>
+#include <ffirpc/sc_queue.h>
 
 #include <assert.h>
 #include <ffi.h>

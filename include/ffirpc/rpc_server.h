@@ -21,27 +21,22 @@
 // SOFTWARE.
 
 
-
-
 #pragma once
 
-#define RPC_INIT
-#include "../include/rpc_struct.h"
+#include <ffirpc/rpc_thread_context.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_object.h>
 
-typedef void (*init_handler)(void);
+enum rpc_server_errors{
+    ERR_RPC_OK,
+    ERR_RPC_PROTOTYPE_DIFFERENT,
+    ERR_RPC_VARIADIC_NOT_ALLOWED,
+    ERR_RPC_DOESNT_EXIST,
+};
 
-typedef struct{
-    char* name;
+#ifdef RPC_INIT
+void rpc_server_init(); //server init for loader
+#endif
 
-    char** dependecies;
-    int dependecies_len;
-
-    init_handler init_handler;
-}rpc_service_t;
-
-void rpc_service_add(rpc_struct_t load,rpc_service_t service);
-void rpc_service_add_packet(rpc_struct_t load, rpc_service_t* services, int services_len);
-void rpc_service_load(rpc_struct_t load,char* service_name);
-void rpc_service_load_all(rpc_struct_t load);
-
-void rpc_init(); //init RPC library. SHOULD BE CALLED BEFORE EVERYTHING ELSE!
+int rpc_server_launch_port(short port);
+int rpc_server_stop_port(short port);

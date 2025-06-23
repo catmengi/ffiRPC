@@ -23,8 +23,8 @@
 
 
 
-#include "../include/ptracker.h"
-#include "../include/hashtable.h"
+#include <ffirpc/ptracker.h>
+#include <ffirpc/hashtable.h>
 
 #include <assert.h>
 #include <stdlib.h>

@@ -22,12 +22,12 @@
 
 
 
-#include "../include/rpc_client.h"
-#include "../include/rpc_struct.h"
-#include "../include/rpc_server_internal.h"
-#include "../include/rpc_object_internal.h"
-#include "../include/rpc_network.h"
-#include "../include/poll_network.h"
+#include <ffirpc/rpc_client.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_server_internal.h>
+#include <ffirpc/rpc_object_internal.h>
+#include <ffirpc/rpc_network.h>
+#include <ffirpc/poll_network.h>
 
 #include <netdb.h>
 

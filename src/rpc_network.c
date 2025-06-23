@@ -23,10 +23,10 @@
 
 
 
-#include "../include/rpc_network.h"
-#include "../include/rpc_struct.h"
-#include "../include/sc_queue.h"
-#include "../include/poll_network.h"
+#include <ffirpc/rpc_network.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/sc_queue.h>
+#include <ffirpc/poll_network.h>
 
 #include <jansson.h>
 

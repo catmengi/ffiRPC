@@ -1,5 +1,5 @@
 #pragma once
-#include "rpc_struct.h"
+#include <ffirpc/rpc_struct.h>
 
 #include <ffi.h>
 

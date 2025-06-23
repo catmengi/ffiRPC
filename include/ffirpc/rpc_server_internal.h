@@ -21,18 +21,10 @@
 // SOFTWARE.
 
 
+
+
+
 #pragma once
 
-#include "rpc_struct.h"
-
-#ifdef RPC_INIT
-void rpc_object_init();
-#endif
-
-rpc_struct_t rpc_lobject_get();
-
-int rpc_cobject_set(char* cobj_name, rpc_struct_t cobj);
-rpc_struct_t rpc_cobject_get(char* cobj_name);
-int rpc_cobject_remove(char* cobj_name); //SHOULD NEVER BE CALLED FROM RPC_FUNCTION!
-
-int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_struct_t output);
+#include <ffirpc/rpc_struct.h>
+int rpc_server_localnet_job(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);

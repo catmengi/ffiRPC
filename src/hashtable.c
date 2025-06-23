@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include "../include/hashtable.h"
+#include <ffirpc/hashtable.h>
 
 /*
  * Interface section used for `makeheaders`.

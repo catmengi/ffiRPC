@@ -34,9 +34,9 @@
 
 #include <jansson.h>
 
-#include "hashtable.h"
-#include "rpc_sizedbuf.h"
-#include "ptracker.h"
+#include <ffirpc/hashtable.h>
+#include <ffirpc/rpc_sizedbuf.h>
+#include <ffirpc/ptracker.h>
 
 #define RPC_STRUCT_ID_SIZE 65
 
@@ -69,7 +69,7 @@ enum rpc_types{
     RPC_unknown,
 };
 
-#include "rpc_function.h"
+#include <ffirpc/rpc_function.h>
 
 
 /**
@@ -80,7 +80,7 @@ enum rpc_types{
  */
 typedef struct _rpc_struct *rpc_struct_t;
 typedef void (*rpc_struct_destructor)(rpc_struct_t rpc_struct);//function pointer to manually destruct object in rpc_struct, like closing FDs or so
-#include "rpc_struct_internal.h"
+#include <ffirpc/rpc_struct_internal.h>
 
 /**
  * @brief Creates a new RPC structure

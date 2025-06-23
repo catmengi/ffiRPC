@@ -23,12 +23,12 @@
 
 
 
-#include "../include/rpc_init.h"
-#include "../include/rpc_struct.h"
+#include <ffirpc/rpc_init.h>
+#include <ffirpc/rpc_struct.h>
 
-#include "../include/rpc_thread_context.h"
-#include "../include/rpc_server.h"
-#include "../include/rpc_object.h"
+#include <ffirpc/rpc_thread_context.h>
+#include <ffirpc/rpc_server.h>
+#include <ffirpc/rpc_object.h>
 
 #include <assert.h>
 #include <sys/types.h>

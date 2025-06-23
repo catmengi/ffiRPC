@@ -27,8 +27,8 @@
 #include <stdlib.h>
 #include <stdatomic.h>
 
-#include "sc_queue.h"
-#include "rpc_struct.h"
+#include <ffirpc/sc_queue.h>
+#include <ffirpc/rpc_struct.h>
 
 #define INTERNAL_API
 

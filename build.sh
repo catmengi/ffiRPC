@@ -3,6 +3,6 @@ mkdir build
 cd build
 cmake ..
 cmake --build .
-./tests/donkey
+mv ./tests/donkey ../donkey
 cd ..
 rm -r build/

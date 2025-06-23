@@ -20,23 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-
 #pragma once
 
-#include "rpc_thread_context.h"
-#include "rpc_struct.h"
-#include "rpc_object.h"
+#include <ffirpc/rpc_struct.h>
 
-enum rpc_server_errors{
-    ERR_RPC_OK,
-    ERR_RPC_PROTOTYPE_DIFFERENT,
-    ERR_RPC_VARIADIC_NOT_ALLOWED,
-    ERR_RPC_DOESNT_EXIST,
-};
+typedef struct _rpc_net_person* rpc_net_person_t;
+typedef struct _rpc_net_holder* rpc_net_holder_t;
 
-#ifdef RPC_INIT
-void rpc_server_init(); //server init for loader
-#endif
+typedef struct {
+    void* userdata;
+    void (*notify)(rpc_net_person_t person, void* userdata);
+    void (*persondata_init)(rpc_net_person_t person, void* userdata);
+    void (*persondata_destroy)(rpc_net_person_t person, void* userdata);
+}rpc_net_notifier_callback;
 
-int rpc_server_launch_port(short port);
-int rpc_server_stop_port(short port);
+
+rpc_net_holder_t rpc_net_holder_create(rpc_net_notifier_callback notifier);
+void rpc_net_holder_free(rpc_net_holder_t holder);
+
+void rpc_net_holder_accept_on(rpc_net_holder_t holder, int accept_fd);
+void rpc_net_holder_add_fd(rpc_net_holder_t holder, int fd);
+rpc_net_notifier_callback rpc_net_holder_get_notify(rpc_net_holder_t holder);
+
+int create_tcp_listenfd(short port);
+
+int rpc_net_send(int fd, rpc_struct_t tosend);
+rpc_struct_t rpc_net_recv(int fd);
+
+rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person);
+char* rpc_net_person_id(rpc_net_person_t person);
+size_t rpc_net_person_request_ammount(rpc_net_person_t person);
+int rpc_net_person_fd(rpc_net_person_t person);

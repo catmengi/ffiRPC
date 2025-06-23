@@ -25,7 +25,7 @@
 #include <pthread.h>
 #include <stdio.h>
 
-#include "rpc_struct.h"
+#include <ffirpc/rpc_struct.h>
 
 void rpc_init_thread_context();
 void rpc_deinit_thread_context();

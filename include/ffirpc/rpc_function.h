@@ -20,34 +20,27 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+
+
+
 #pragma once
 
-#include "rpc_struct.h"
+#include <ffirpc/rpc_struct.h>
 
-typedef struct _rpc_net_person* rpc_net_person_t;
-typedef struct _rpc_net_holder* rpc_net_holder_t;
+#define INTERNAL_API
+typedef struct _rpc_function* rpc_function_t;
 
-typedef struct {
-    void* userdata;
-    void (*notify)(rpc_net_person_t person, void* userdata);
-    void (*persondata_init)(rpc_net_person_t person, void* userdata);
-    void (*persondata_destroy)(rpc_net_person_t person, void* userdata);
-}rpc_net_notifier_callback;
-
-
-rpc_net_holder_t rpc_net_holder_create(rpc_net_notifier_callback notifier);
-void rpc_net_holder_free(rpc_net_holder_t holder);
-
-void rpc_net_holder_accept_on(rpc_net_holder_t holder, int accept_fd);
-void rpc_net_holder_add_fd(rpc_net_holder_t holder, int fd);
-rpc_net_notifier_callback rpc_net_holder_get_notify(rpc_net_holder_t holder);
-
-int create_tcp_listenfd(short port);
-
-int rpc_net_send(int fd, rpc_struct_t tosend);
-rpc_struct_t rpc_net_recv(int fd);
-
-rpc_struct_t rpc_net_person_get_request(rpc_net_person_t person);
-char* rpc_net_person_id(rpc_net_person_t person);
-size_t rpc_net_person_request_ammount(rpc_net_person_t person);
-int rpc_net_person_fd(rpc_net_person_t person);
+rpc_function_t rpc_function_create();
+void rpc_function_free(rpc_function_t fn);
+json_t* rpc_function_serialize(rpc_function_t fn);
+rpc_function_t rpc_function_deserialize(json_t* json);
+void* rpc_function_get_fnptr(rpc_function_t fn);
+void rpc_function_set_fnptr(rpc_function_t fn, void* fnptr);
+void rpc_function_set_prototype(rpc_function_t fn, enum rpc_types* prototype, int prototype_len);
+enum rpc_types* rpc_function_get_prototype(rpc_function_t fn);
+int rpc_function_get_prototype_len(rpc_function_t fn);
+enum rpc_types rpc_function_get_return_type(rpc_function_t fn);
+void rpc_function_set_return_type(rpc_function_t fn, enum rpc_types return_type);
+rpc_function_t rpc_function_copy(rpc_function_t fn);
+INTERNAL_API void rpc_function_free_internals(rpc_function_t fn);
+INTERNAL_API size_t rpc_function_memsize();

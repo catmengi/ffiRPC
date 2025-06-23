@@ -22,12 +22,12 @@
 
 
 
-#include "../include/rpc_struct.h"
-#include "../include/rpc_sizedbuf.h"
-#include "../include/rpc_function.h"
-#include "../include/hashtable.h"
-#include "../include/ptracker.h"
-#include "../include/sc_queue.h"
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_sizedbuf.h>
+#include <ffirpc/rpc_function.h>
+#include <ffirpc/hashtable.h>
+#include <ffirpc/ptracker.h>
+#include <ffirpc/sc_queue.h>
 
 #include <jansson.h>
 #include <pthread.h>
