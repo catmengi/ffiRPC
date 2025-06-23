@@ -29,6 +29,7 @@
 
 #include <ffirpc/sc_queue.h>
 #include <ffirpc/rpc_struct.h>
+#include <ffirpc/hashmap/hashmap.h>
 
 #define INTERNAL_API
 
@@ -46,7 +47,7 @@ typedef struct{
 }prec_rpc_udata;
 
 typedef struct{
-    hashtable* keys;
+    HASHMAP (char, void) keys;
     rpc_struct_free_cb free;
     pthread_mutex_t lock;
 }rpc_struct_prec_ptr_ctx;

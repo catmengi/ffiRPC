@@ -43,3 +43,6 @@ int prec_refcount(prec_t prec);
 void* prec_context_get(prec_t prec);
 void prec_context_set(prec_t prec, void* context);
 void* prec_ptr(prec_t prec);
+
+size_t ptracker_hash_ptr(const void* key);
+int ptracker_ptr_cmp(const void* k1, const void* k2);

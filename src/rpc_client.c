@@ -22,12 +22,16 @@
 
 
 
+#include "ffirpc/hashmap/hashmap.h"
+#include "ffirpc/hashmap/hashmap_base.h"
+#include <asm-generic/errno-base.h>
 #include <ffirpc/rpc_client.h>
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_server_internal.h>
 #include <ffirpc/rpc_object_internal.h>
 #include <ffirpc/rpc_network.h>
 #include <ffirpc/poll_network.h>
+#include <ffirpc/ptracker.h>
 
 #include <netdb.h>
 
@@ -135,7 +139,6 @@ int rpc_client_connect_tcp(rpc_client_t client, char* host){
                         if(connect(sockfd, iter->ai_addr, iter->ai_addrlen) == 0){
                             tcp_userdata tcp = malloc(sizeof(*tcp)); assert(tcp);
                             tcp->fd = sockfd;
-                            assert(pthread_create(&tcp->ping,NULL,(void* (*)(void*))tcp_ping, client) == 0);
 
                             pthread_mutexattr_t attr;
                             pthread_mutexattr_init(&attr);
@@ -145,6 +148,8 @@ int rpc_client_connect_tcp(rpc_client_t client, char* host){
                             client->connection_userdata = tcp;
                             client->method_request = tcp_requestor;
                             client->disconnect = tcp_disconnect;
+
+                            assert(pthread_create(&tcp->ping,NULL,(void* (*)(void*))tcp_ping, client) == 0);
 
                             ret = 0;
                             break;
@@ -212,6 +217,13 @@ static void cobj_destructor(rpc_struct_t cobj){
     free(keys);
     rpc_struct_manual_lock(cobj);
 }
+
+static size_t hash_size_t(const size_t key){
+    return hashmap_hash_default(&key,sizeof(key));
+}
+static int cmp_size_t(const size_t k1, const size_t k2){
+    return k1 != k2;
+}
 typedef struct{
     int was_refcounted; //was it reference counted before we set it into arguments
     void* closure_arg;
@@ -235,8 +247,15 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     rpc_struct_t call_request = rpc_struct_create();
     rpc_struct_t fn_args = rpc_struct_create();
 
-    hashtable* to_update = hashtable_create();
-    hashtable* to_update_ptr = hashtable_create();
+    HASHMAP(char, void) to_update;
+    hashmap_init(&to_update,hashmap_hash_string,strcmp);
+    hashmap_set_key_alloc_funcs(&to_update,strdup,(void (*)(char*))free);
+
+    HASHMAP(void, void) to_update_ptr;
+    hashmap_init(&to_update_ptr,ptracker_hash_ptr,ptracker_ptr_cmp);
+
+    HASHMAP(void, void) updated;
+    hashmap_init(&updated,ptracker_hash_ptr,ptracker_ptr_cmp);
 
     for(int i = 0; i < prototype_len; i++){
         assert(prototype[i] != RPC_none); //check your server bro
@@ -263,17 +282,15 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                     rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(element->data)); assert(ctx); //так надо
                     ctx->free = NULL; //disabling reference counted free for this element if it wasnt reference counted before rpc_struct_set_internal
                 }
-                char ptr_acc[sizeof(void*) * 4];
-                sprintf(ptr_acc, "%p", element->data);
 
-                if(hashtable_get(to_update_ptr,ptr_acc) == NULL || hashtable_get(to_update,args_acc) == NULL){
+                if(hashmap_get(&to_update_ptr,element->data) == NULL || hashmap_get(&to_update,args_acc) == NULL){
                     arg_update_info arg_info = malloc(sizeof(*arg_info)); assert(arg_info);
                     arg_info->was_refcounted = was_refcounted;
                     arg_info->closure_arg = args[i];
 
 
-                    if(hashtable_get(to_update,args_acc) == NULL) hashtable_set(to_update, strdup(args_acc), arg_info);
-                    if(hashtable_get(to_update_ptr,ptr_acc) == NULL) hashtable_set(to_update_ptr, strdup(ptr_acc), arg_info);
+                    hashmap_put(&to_update, args_acc, arg_info);
+                    hashmap_put(&to_update_ptr, element->data, arg_info);
                 }
             }
             break;
@@ -287,9 +304,6 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     assert(rpc_struct_set(request, "method", (char*)"call") == 0);
     assert(rpc_struct_set(request, "params", call_request) == 0);
 
-    size_t to_update_size = to_update->size;
-    char** to_update_keys = hashtable_get_keys(to_update);
-    hashtable* updated = hashtable_create();
     rpc_struct_t reply = my_data->client->method_request(my_data->client, request);
     if(reply){
         enum rpc_types return_type = rpc_struct_typeof(reply,"return");
@@ -311,9 +325,10 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
         }
 
         char upd_p_acc[sizeof(void*) * 4];
-        for(size_t i = 0; i < to_update_size; i++){
-            arg_update_info info = hashtable_get(to_update, to_update_keys[i]);
-            struct rpc_container_element* element = rpc_struct_get_internal(reply,to_update_keys[i]);
+        arg_update_info info = NULL;
+        const char* key = NULL;
+        hashmap_foreach(key,info,&to_update){
+            struct rpc_container_element* element = rpc_struct_get_internal(reply,(char*)key);
             if(element){ //we should expect that not all arguments will be sent back, only thoose which hash was has changed, if you changed it and it wasnt replyed, check hash function of your type!
                 sprintf(upd_p_acc, "%p", element->data);
                 switch(element->type){
@@ -321,7 +336,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                         memcpy(*(void**)info->closure_arg, element->data, strlen(element->data) > strlen(*(void**)info->closure_arg) ? strlen(*(void**)info->closure_arg) : strlen(element->data));
                         break;
                     case RPC_struct:{
-                        if(hashtable_get(updated, upd_p_acc) == NULL){
+                        if(hashmap_get(&updated, element->data) == NULL){
                             if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
                                 rpc_struct_free_internals(*(void**)info->closure_arg);
 
@@ -343,12 +358,12 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                                 prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                             } else if(info != NULL && info->was_refcounted == 1) {prec_increment(prec_get(element->data),NULL);}
-                            hashtable_set(updated, strdup(upd_p_acc), (void*)1);
+                            hashmap_put(&updated, element->data, (void*)1);
                         }
                     }
                     break;
                     case RPC_sizedbuf:{
-                        if(hashtable_get(updated, upd_p_acc) == NULL){
+                        if(hashmap_get(&updated, element->data) == NULL){
                             if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
                                 rpc_sizedbuf_free_internals(*(void**)info->closure_arg);
 
@@ -370,12 +385,12 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                                 prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                             } else if(info != NULL && info->was_refcounted == 1) prec_increment(prec_get(element->data),NULL);
-                            hashtable_set(updated, strdup(upd_p_acc), (void*)1);
+                            hashmap_put(&updated, element->data, (void*)1);
                         }
                     }
                     break;
                     case RPC_function:{
-                        if(hashtable_get(updated, upd_p_acc) == NULL){
+                        if(hashmap_get(&updated, element->data) == NULL){
                             if(*(void**)info->closure_arg != element->data) //this might happen if we running through local client!
                                 rpc_function_free_internals(*(void**)info->closure_arg);
 
@@ -397,7 +412,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
                                 prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
                             } else if(info != NULL && info->was_refcounted == 1) prec_increment(prec_get(element->data),NULL);
-                            hashtable_set(updated, strdup(upd_p_acc), (void*)1);
+                            hashmap_put(&updated, element->data, (void*)1);
                         }
                     }
                     break;
@@ -409,10 +424,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
         }
 
         if(return_fill_later){
-            char rfl_acc[sizeof(void*) * 4];
-            sprintf(rfl_acc, "%p", return_fill_later);
-
-            arg_update_info arg_info = hashtable_get(to_update_ptr,rfl_acc);
+            arg_update_info arg_info = hashmap_get(&to_update_ptr,return_fill_later);
             if(arg_info == NULL || arg_info->was_refcounted == 0){
                 rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(return_fill_later));
                 if(ctx) ctx->free = NULL; //are you sure? Yes i am. But really, we dont want the return value to be controled by someone else.....
@@ -431,31 +443,13 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
 
     rpc_struct_free(reply);
 
-    char** to_update_ptrkeys = hashtable_get_keys(to_update_ptr);
-    size_t to_update_ptrsize = to_update_ptr->size;
-    for(size_t i = 0; i  < to_update_ptrsize; i++){
-        hashtable_remove(to_update_ptr,to_update_ptrkeys[i]);
-        free(to_update_ptrkeys[i]);
+    arg_update_info free_info = NULL;
+    hashmap_foreach_data(free_info,&to_update){
+        free(free_info);
     }
-    for(size_t i = 0; i < to_update_size; i++){
-        free(hashtable_get(to_update,to_update_keys[i]));
-        hashtable_remove(to_update,to_update_keys[i]);
-        free(to_update_keys[i]);
-    }
-
-    char** updated_keys = hashtable_get_keys(updated);
-    size_t updated_size = updated->size;
-    for(size_t i = 0; i < updated_size;i++){
-        hashtable_remove(updated,updated_keys[i]);
-        free(updated_keys[i]);
-    }
-
-    free(to_update_ptrkeys);
-    free(to_update_keys);
-    free(updated_keys);
-    hashtable_destroy(to_update_ptr);
-    hashtable_destroy(to_update);
-    hashtable_destroy(updated);
+    hashmap_cleanup(&to_update_ptr);
+    hashmap_cleanup(&to_update);
+    hashmap_cleanup(&updated);
 
     pthread_mutex_unlock(&my_data->lock);
     rpc_struct_manual_unlock(my_data->cobj);

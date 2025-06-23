@@ -22,6 +22,7 @@
 
 
 
+#include "ffirpc/hashmap/hashmap.h"
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_sizedbuf.h>
 #include <ffirpc/rpc_function.h>
@@ -102,15 +103,16 @@ void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*)){ 
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
     if(ptr_ctx){
         pthread_mutex_lock(&ptr_ctx->lock);
-        char** keys = hashtable_get_keys(ptr_ctx->keys);
-        size_t length = ptr_ctx->keys->size;
-        for(size_t i = 0; i < length; i++){
-            rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,keys[i]);
+
+        const char* foreach_key = NULL;
+        rpc_struct_prec_ctx* ctx = NULL;
+        void* pos = NULL;
+        hashmap_foreach_safe(foreach_key,ctx,&ptr_ctx->keys, pos){
             if(ctx){
                 for(int j = 0; j < ctx->o_index; j++){
                     if(ctx->origins[j]){
                         pthread_mutex_lock(&ctx->origins[j]->lock);
-                        if(destroyer) destroyer(ctx->origins[j], keys[i]);
+                        if(destroyer) destroyer(ctx->origins[j], (char*)foreach_key);
                         pthread_mutex_unlock(&ctx->origins[j]->lock);
                     }
                 }
@@ -119,12 +121,10 @@ void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*)){ 
                 free(ctx);
             }
         }
-        for(size_t i = 0; i < length; i++) free(keys[i]);
-        free(keys);
 
         if(ptr_ctx->free) ptr_ctx->free(prec_ptr(prec));
 
-        hashtable_destroy(ptr_ctx->keys);
+        hashmap_cleanup(&ptr_ctx->keys);
         prec_context_set(prec, NULL);
         pthread_mutex_unlock(&ptr_ctx->lock);
         pthread_mutex_destroy(&ptr_ctx->lock);
@@ -141,7 +141,8 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         if(ptr_ctx == NULL){
             ptr_ctx = malloc(sizeof(*ptr_ctx)); assert(ptr_ctx);
 
-            ptr_ctx->keys = hashtable_create();
+            hashmap_init(&ptr_ctx->keys,hashmap_hash_string, strcmp);
+            hashmap_set_key_alloc_funcs(&ptr_ctx->keys,strdup,(void (*)(char*))free);
             ptr_ctx->free = udat->free;
 
             pthread_mutexattr_t attr;
@@ -154,7 +155,7 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
         pthread_mutex_lock(&ptr_ctx->lock);
         if(udat->name != NULL && udat->origin != NULL){
             pthread_mutex_lock(&udat->origin->lock);
-            rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
+            rpc_struct_prec_ctx* ctx = hashmap_get(&ptr_ctx->keys, udat->name);
             if(ctx == NULL){
                 ctx = malloc(sizeof(*ctx)); assert(ctx);
 
@@ -162,7 +163,7 @@ static void rpc_struct_increment_cb(prec_t prec, void* udata){
                 ctx->o_size = RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE;
                 ctx->origins = malloc(sizeof(*ctx->origins) * ctx->o_size); assert(ctx->origins);
                 sc_queue_init(&ctx->empty_origins);
-                hashtable_set(ptr_ctx->keys,strdup(udat->name),ctx);
+                hashmap_put(&ptr_ctx->keys,udat->name,ctx);
             }
             int index = (sc_queue_size(&ctx->empty_origins) == 0 ? ctx->o_index++ : sc_queue_del_first(&ctx->empty_origins));
             if(index == ctx->o_size - 1) assert((ctx->origins = realloc(ctx->origins, sizeof(*ctx->origins) * (ctx->o_size += RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE))));
@@ -178,7 +179,7 @@ static void rpc_struct_decrement_cb(prec_t prec, void* udata){
         if(ptr_ctx){
             pthread_mutex_lock(&ptr_ctx->lock);
             prec_rpc_udata* udat = udata;
-            rpc_struct_prec_ctx* ctx = hashtable_get(ptr_ctx->keys,udat->name);
+            rpc_struct_prec_ctx* ctx = hashmap_get(&ptr_ctx->keys,udat->name);
             if(ctx){
                 for(int i = 0; i < ctx->o_index; i++){
                     if(ctx->origins[i] == udat->origin){
@@ -189,10 +190,7 @@ static void rpc_struct_decrement_cb(prec_t prec, void* udata){
                     }
                 }
                 if(ctx->o_index == 0){
-                    char* kfree = ptr_ctx->keys->body[hashtable_find_slot(ptr_ctx->keys,udat->name)].key;
-                    hashtable_remove(ptr_ctx->keys,kfree);
-                    free(kfree);
-
+                    hashmap_remove(&ptr_ctx->keys,udat->name);
                     sc_queue_term(&ctx->empty_origins);
                     free(ctx->origins);
                     free(ctx);
@@ -312,11 +310,11 @@ struct rpc_struct_duplicate_info {
 struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output) {
     assert(rpc_struct);
     *len_output = 0;
-    pthread_mutex_lock(&rpc_struct->lock);
+    rpc_struct_manual_lock(rpc_struct);
 
     size_t length = rpc_struct_length(rpc_struct);
     char** keys = rpc_struct_keys(rpc_struct);
-    if (!keys) {pthread_mutex_unlock(&rpc_struct->lock);return NULL;}
+    if (!keys) {rpc_struct_manual_unlock(rpc_struct);return NULL;}
 
     // Создаём хеш-таблицу: ключ — указатель (void*), значение — struct rpc_struct_duplicate_info*
     hashtable* ptr_map = hashtable_create();
@@ -371,12 +369,12 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
 
     if (count == 0) {
         free(duplicates);
-        pthread_mutex_unlock(&rpc_struct->lock);
+        rpc_struct_manual_unlock(rpc_struct);
         return NULL;
     }
 
     *len_output = count;
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_unlock(rpc_struct);
     return duplicates;
 }
 //==========================================================================

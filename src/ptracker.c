@@ -48,10 +48,10 @@ struct _prec{
     atomic_int refcount;
 };
 
-static size_t ptracker_hash_ptr(const void* key){
+size_t ptracker_hash_ptr(const void* key){
     return hashmap_hash_default(&key,sizeof(&key));
 }
-static int ptracker_ptr_cmp(const void* k1, const void* k2){
+int ptracker_ptr_cmp(const void* k1, const void* k2){
     return k1 != k2;
 }
 static void ptracker_init(){

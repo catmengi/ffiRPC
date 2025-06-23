@@ -2,7 +2,7 @@
  * Copyright (c) 2016-2020 David Leeds <davidesleeds@gmail.com>
  *
  * Hashmap is free software; you can redistribute it and/or modify
- * it under the terms of the MIT license. See LICENSE for details.
+ * it under the terms of the MIT license. See below for details.
  */
 
 // MIT License
