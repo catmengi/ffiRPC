@@ -23,8 +23,11 @@
 
 
 
+#include "ffirpc/hashmap/hashmap_base.h"
 #include <ffirpc/ptracker.h>
 #include <ffirpc/hashtable.h>
+
+#include <ffirpc/hashmap/hashmap.h>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -32,7 +35,8 @@
 #include <string.h>
 #include <stdatomic.h>
 
-static hashtable* ptracker = NULL; //should be changed to void* keyed HT to prevent convert to string!
+static HASHMAP(void, void) ptracker = {0}; //should be changed to void* keyed HT to prevent convert to string!
+static int PT_inited = 0;
 
 struct _prec{
     void* ptr;
@@ -44,23 +48,25 @@ struct _prec{
     atomic_int refcount;
 };
 
+static size_t ptracker_hash_ptr(const void* key){
+    return hashmap_hash_default(&key,sizeof(&key));
+}
+static int ptracker_ptr_cmp(const void* k1, const void* k2){
+    return k1 != k2;
+}
+static void ptracker_init(){
+    if(PT_inited == 0){
+        hashmap_init(&ptracker,ptracker_hash_ptr,ptracker_ptr_cmp);
+        PT_inited = 1;
+    }
+}
 prec_t prec_get(void* ptr){
-    if(ptracker == NULL){ //not inited yet
-        ptracker = hashtable_create();
-        return NULL; //because it is newly inited and does not have any data
-    }
-    char acc[sizeof(void*) * 4];
-    sprintf(acc,"%p",ptr);
-
-    prec_t ret = hashtable_get(ptracker,acc);
-    if(ret){
-        ret->ptr = ptr; //this is for prec merge
-    }
-    return ret;
+    ptracker_init();
+    return hashmap_get(&ptracker, ptr);
 }
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
-    if(ptracker == NULL) ptracker = hashtable_create();
+    ptracker_init();
     assert(prec_get(ptr) == NULL);
 
     prec_t new = malloc(sizeof(*new)); assert(new);
@@ -70,9 +76,7 @@ prec_t prec_new(void* ptr, struct prec_callbacks cbs){
     new->context_refcount = 1; //it will only be incremented on prec_merge
     new->cbs = cbs;
 
-    char acc[sizeof(void*) * 4];
-    sprintf(acc,"%p",ptr);
-    hashtable_set(ptracker,strdup(acc),new);
+    assert(hashmap_insert(&ptracker,ptr,new,NULL) == 1);
 
     return new;
 }
@@ -80,11 +84,7 @@ prec_t prec_new(void* ptr, struct prec_callbacks cbs){
 //force deletion
 void prec_delete(prec_t prec){
     if(prec){
-        char acc[sizeof(void*) * 4];
-        sprintf(acc,"%p",prec->ptr);
-        char* kfree = ptracker->body[hashtable_find_slot(ptracker,acc)].key;
-        hashtable_remove(ptracker,acc);
-        free(kfree);
+        hashmap_remove(&ptracker, prec->ptr);
 
         if(prec->cbs.zero) prec->cbs.zero(prec);
         free(prec);
