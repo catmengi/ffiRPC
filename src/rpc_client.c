@@ -327,7 +327,8 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
         const char* key = NULL;
         hashmap_foreach(key,info,&to_update){
             struct rpc_container_element* element = rpc_struct_get_internal(reply,(char*)key);
-            if(element){ //we should expect that not all arguments will be sent back, only thoose which hash was has changed, if you changed it and it wasnt replyed, check hash function of your type!
+            if(element){
+                //we should expect that not all arguments will be sent back, only thoose which hash was has changed, if you changed it and it wasnt replyed, check hash function of your type!
                 sprintf(upd_p_acc, "%p", element->data);
                 switch(element->type){
                     case RPC_string:
