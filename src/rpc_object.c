@@ -202,7 +202,6 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
             sc_queue_add_last(&updated_arguments,arg_info);
         }
     }
-    rpc_struct_t context = rpc_thread_context_get(); //get thread execution context
 
     void* return_is = NULL;
     uint64_t ffi_return = 0;

@@ -34,7 +34,6 @@
 
 #include <jansson.h>
 
-#include <ffirpc/hashtable.h>
 #include <ffirpc/rpc_sizedbuf.h>
 #include <ffirpc/ptracker.h>
 
@@ -67,6 +66,12 @@ enum rpc_types{
     RPC_function,
 
     RPC_unknown,
+};
+
+struct rpc_container_element{
+    void* data;
+    size_t length;
+    enum rpc_types type;
 };
 
 #include <ffirpc/rpc_function.h>
@@ -198,8 +203,7 @@ struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, c
 #define rpc_struct_increment_refcount(__ptr) ({\
 if(rpc_is_pointer(ctype_to_rpc(typeof(__ptr)) && ctype_to_rpc(typeof(__ptr)) != RPC_string && ctype_to_rpc(typeof(__ptr)) != RPC_unknown)){\
     prec_rpc_udata __udat = {.origin = NULL, .name = NULL, .free = rpc_freefn_of(ctype_to_rpc(typeof(__ptr)))};\
-    prec_t __prec = prec_get(__ptr); if(__prec == NULL) {__prec = prec_new(__ptr, rpc_struct_default_prec_cbs);}\
-    prec_increment(__prec, &__udat);\
+    prec_increment(prec_new(__ptr, rpc_struct_default_prec_cbs), &__udat);\
 }})
 
 /**

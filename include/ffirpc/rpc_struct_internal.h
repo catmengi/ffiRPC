@@ -33,12 +33,6 @@
 
 #define INTERNAL_API
 
-struct rpc_container_element{
-    void* data;
-    size_t length;
-    enum rpc_types type;
-};
-
 typedef void (*rpc_struct_free_cb)(void*);
 typedef struct{
     rpc_struct_t origin;
@@ -52,26 +46,26 @@ typedef struct{
     pthread_mutex_t lock;
 }rpc_struct_prec_ptr_ctx;
 
+INTERNAL_API uint64_t murmur(uint8_t* inbuf,uint32_t keylen);
 INTERNAL_API extern char ID_alphabet[37];
 INTERNAL_API extern struct prec_callbacks rpc_struct_default_prec_cbs;
 INTERNAL_API rpc_struct_free_cb rpc_freefn_of(enum rpc_types type);
 INTERNAL_API void rpc_struct_free_internals(rpc_struct_t rpc_struct); //same as rpc_struct_free but doesnt call free on rpc_struct_t
 INTERNAL_API size_t rpc_struct_memsize();
-INTERNAL_API void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*));
+INTERNAL_API void rpc_struct_prec_ctx_destroy(prec_t prec);
 
 #define copy(input) ({void* __out = malloc(sizeof(*input)); assert(__out); memcpy(__out,input,sizeof(*input)); (__out);})
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
 #define c_to_rpc(element,var)({\
-    element->type = ctype_to_rpc(typeof(var));\
-    char __tmp[sizeof(typeof(var))]; *(typeof(var)*)__tmp = var;\
-    if(rpc_is_pointer(element->type)){\
-        element->length = 0;\
-        element->data = *(void**)__tmp;\
-    } else {\
-        element->data = malloc(sizeof(typeof(var)));\
-        assert(element->data);\
-        element->length = sizeof(typeof(var));\
-        memcpy(element->data,__tmp,element->length);\
-    }})
-
+element->type = ctype_to_rpc(typeof(var));\
+char __tmp[sizeof(typeof(var))]; *(typeof(var)*)__tmp = var;\
+if(rpc_is_pointer(element->type)){\
+    element->length = 0;\
+    element->data = *(void**)__tmp;\
+} else {\
+    element->data = malloc(sizeof(typeof(var)));\
+    assert(element->data);\
+    element->length = sizeof(typeof(var));\
+    memcpy(element->data,__tmp,element->length);\
+}})

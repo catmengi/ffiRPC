@@ -344,7 +344,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 prec_t rfl_prec = prec_get(return_fill_later);
                                 if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
                                     if(info == NULL || info->was_refcounted == 0){
-                                        rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                        rpc_struct_prec_ctx_destroy(rfl_prec);
                                         prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
                                     }
                                     return_fill_later = *(void**)info->closure_arg;
@@ -371,7 +371,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 prec_t rfl_prec = prec_get(return_fill_later);
                                 if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
                                     if(info == NULL || info->was_refcounted == 0){
-                                        rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                        rpc_struct_prec_ctx_destroy(rfl_prec);
                                         prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
                                     }
                                     return_fill_later = *(void**)info->closure_arg;
@@ -398,7 +398,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                                 prec_t rfl_prec = prec_get(return_fill_later);
                                 if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
                                     if(info == NULL || info->was_refcounted == 0){
-                                        rpc_struct_prec_ctx_destroy(rfl_prec,NULL);
+                                        rpc_struct_prec_ctx_destroy(rfl_prec);
                                         prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
                                     }
                                     return_fill_later = *(void**)info->closure_arg;

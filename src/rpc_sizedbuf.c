@@ -23,8 +23,8 @@
 
 
 #include <ffirpc/rpc_sizedbuf.h>
-#include <ffirpc/hashtable.h>
 #include <ffirpc/ptracker.h>
+#include <ffirpc/rpc_struct.h>
 
 #include <assert.h>
 #include <jansson.h>

@@ -22,11 +22,11 @@
 
 
 
-#include <ffirpc/hashmap/hashmap.h>
+#include <ffirpc/rpc_struct_internal.h>
 #include <ffirpc/rpc_struct.h>
+#include <ffirpc/hashmap/hashmap.h>
 #include <ffirpc/rpc_sizedbuf.h>
 #include <ffirpc/rpc_function.h>
-#include <ffirpc/hashtable.h>
 #include <ffirpc/ptracker.h>
 #include <ffirpc/sc_queue.h>
 
@@ -36,15 +36,15 @@
 #include <stdatomic.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define RPC_STRUCT_PREC_CTX_DEFAULT_ORIGINS_SIZE 16
 
 struct prec_callbacks rpc_struct_default_prec_cbs;
-
 char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 struct _rpc_struct{
-    hashtable* ht;
+    HASHMAP(char,void) map;
     pthread_mutex_t lock;
 
     char ID[RPC_STRUCT_ID_SIZE];
@@ -62,13 +62,23 @@ typedef struct{
     struct sc_queue_int empty_origins;
 }rpc_struct_prec_ctx;
 
-static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
+uint64_t murmur(uint8_t* inbuf,uint32_t keylen){
+    uint64_t h = (525201411107845655ull);
+    for (uint32_t i =0; i < keylen; i++,inbuf++){
+        h ^= *inbuf;
+        h *= 0x5bd1e9955bd1e995;
+        h ^= h >> 47;
+    }
+    return h;
+}
 
+static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
 rpc_struct_t rpc_struct_create(void){
     rpc_struct_t rpc_struct = (rpc_struct_t)malloc(sizeof(*rpc_struct));
     assert(rpc_struct);
 
-    rpc_struct->ht = hashtable_create();
+    hashmap_init(&rpc_struct->map,hashmap_hash_string,strcmp);
+    hashmap_set_key_alloc_funcs(&rpc_struct->map,strdup,(void (*)(char*))free);
 
     arc4random_buf(rpc_struct->ID,RPC_STRUCT_ID_SIZE - 1);
     rpc_struct->ID[RPC_STRUCT_ID_SIZE - 1] = '\0';
@@ -99,29 +109,10 @@ INTERNAL_API size_t rpc_struct_memsize(){
     return sizeof(struct _rpc_struct);
 }
 //======================== ptracker callbacks code, aka magic!
-void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*)){ //not static because i need this one it client's code for argument updating
+void rpc_struct_prec_ctx_destroy(prec_t prec){ //not static because i need this one it client's code for argument updating
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
     if(ptr_ctx){
         pthread_mutex_lock(&ptr_ctx->lock);
-
-        const char* foreach_key = NULL;
-        rpc_struct_prec_ctx* ctx = NULL;
-        void* pos = NULL;
-        hashmap_foreach_safe(foreach_key,ctx,&ptr_ctx->keys, pos){
-            if(ctx){
-                for(int j = 0; j < ctx->o_index; j++){
-                    if(ctx->origins[j]){
-                        pthread_mutex_lock(&ctx->origins[j]->lock);
-                        if(destroyer) destroyer(ctx->origins[j], (char*)foreach_key);
-                        pthread_mutex_unlock(&ctx->origins[j]->lock);
-                    }
-                }
-                sc_queue_term(&ctx->empty_origins);
-                free(ctx->origins);
-                free(ctx);
-            }
-        }
-
         if(ptr_ctx->free) ptr_ctx->free(prec_ptr(prec));
 
         hashmap_cleanup(&ptr_ctx->keys);
@@ -132,25 +123,49 @@ void rpc_struct_prec_ctx_destroy(prec_t prec, void (*destroyer)(void*, char*)){ 
     }
 }
 static void rpc_struct_onzero_cb(prec_t prec){
-    rpc_struct_prec_ctx_destroy(prec,(void (*)(void*, char*))rpc_struct_remove);
+    rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
+    if(ptr_ctx){
+        const char* foreach_key = NULL;
+        rpc_struct_prec_ctx* ctx = NULL;
+        void* pos = NULL;
+        hashmap_foreach_safe(foreach_key,ctx,&ptr_ctx->keys, pos){
+            if(ctx){
+                for(int j = 0; j < ctx->o_index; j++){
+                    if(ctx->origins[j]){
+                        pthread_mutex_lock(&ctx->origins[j]->lock);
+                        rpc_struct_remove(ctx->origins[j], (char*)foreach_key);
+                        pthread_mutex_unlock(&ctx->origins[j]->lock);
+                    }
+                }
+                sc_queue_term(&ctx->empty_origins);
+                free(ctx->origins);
+                free(ctx);
+            }
+        }
+    }
+    rpc_struct_prec_ctx_destroy(prec);
+}
+static rpc_struct_prec_ptr_ctx* prec_ptr_ctx_create_or_get(prec_t prec, prec_rpc_udata* udat){
+    rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
+    if(ptr_ctx == NULL){
+        ptr_ctx = malloc(sizeof(*ptr_ctx)); assert(ptr_ctx);
+
+        hashmap_init(&ptr_ctx->keys,hashmap_hash_string, strcmp);
+        hashmap_set_key_alloc_funcs(&ptr_ctx->keys,strdup,(void (*)(char*))free);
+        ptr_ctx->free = udat->free;
+
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&ptr_ctx->lock,&attr);
+        prec_context_set(prec,ptr_ctx);
+    }
+    return ptr_ctx;
 }
 static void rpc_struct_increment_cb(prec_t prec, void* udata){
     if(udata){
         prec_rpc_udata* udat = udata;
-        rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
-        if(ptr_ctx == NULL){
-            ptr_ctx = malloc(sizeof(*ptr_ctx)); assert(ptr_ctx);
-
-            hashmap_init(&ptr_ctx->keys,hashmap_hash_string, strcmp);
-            hashmap_set_key_alloc_funcs(&ptr_ctx->keys,strdup,(void (*)(char*))free);
-            ptr_ctx->free = udat->free;
-
-            pthread_mutexattr_t attr;
-            pthread_mutexattr_init(&attr);
-            pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
-            pthread_mutex_init(&ptr_ctx->lock,&attr);
-            prec_context_set(prec,ptr_ctx);
-        }
+        rpc_struct_prec_ptr_ctx* ptr_ctx = prec_ptr_ctx_create_or_get(prec,udat);
 
         pthread_mutex_lock(&ptr_ctx->lock);
         if(udat->name != NULL && udat->origin != NULL){
@@ -213,13 +228,15 @@ void rpc_struct_free_internals(rpc_struct_t rpc_struct){
     if(rpc_struct){
         if(rpc_struct->manual_destructor) rpc_struct->manual_destructor(rpc_struct);
         pthread_mutex_lock(&rpc_struct->lock);
-        for(size_t i = 0; i < rpc_struct->ht->capacity; i++){
-            if(rpc_struct->ht->body[i].key != NULL && rpc_struct->ht->body[i].key != (char*)0xDEAD){
-                rpc_struct_remove(rpc_struct,rpc_struct->ht->body[i].key);
-            }
+
+        const char* foreach_key = NULL;
+        void* pos = NULL;
+        hashmap_foreach_key_safe(foreach_key,&rpc_struct->map,pos){
+            rpc_struct_remove(rpc_struct,(char*)foreach_key);
         }
+
         pthread_mutex_unlock(&rpc_struct->lock);
-        hashtable_destroy(rpc_struct->ht);
+        hashmap_cleanup(&rpc_struct->map);
     }
 }
 
@@ -274,7 +291,7 @@ rpc_struct_free_cb rpc_freefn_of(enum rpc_types type){
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
     if(rpc_struct && key){
         pthread_mutex_lock(&rpc_struct->lock);
-        struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
+        struct rpc_container_element* element = hashmap_get(&rpc_struct->map,key);
         if(element){
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
                 prec_rpc_udata udat = {
@@ -284,9 +301,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
                 prec_decrement(prec_get(element->data),&udat);
             } else if(element->type == RPC_string || !rpc_is_pointer(element->type)) free(element->data);
 
-            char* kfree = rpc_struct->ht->body[hashtable_find_slot(rpc_struct->ht,key)].key;
-            hashtable_remove(rpc_struct->ht,key);
-            free(kfree);
+            hashmap_remove(&rpc_struct->map,key);
             free(element);
             pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
@@ -317,8 +332,8 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     if (!keys) {rpc_struct_manual_unlock(rpc_struct);return NULL;}
 
     // Создаём хеш-таблицу: ключ — указатель (void*), значение — struct rpc_struct_duplicate_info*
-    hashtable* ptr_map = hashtable_create();
-    assert(ptr_map);
+    HASHMAP(void,void) ptr_map;
+    hashmap_init(&ptr_map, ptracker_hash_ptr,ptracker_ptr_cmp);
 
     // Динамический массив для результата
     size_t capacity = 16;
@@ -326,15 +341,14 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     assert(duplicates);
     size_t count = 0;
 
-    for (size_t i = 0; i < length; i++) {
-        struct rpc_container_element* element = hashtable_get(rpc_struct->ht, keys[i]); assert(element); //DEBUG: hashtable/race condition bug catching!
+    void* pos = NULL;
+    struct rpc_container_element* element = NULL;
 
-        char ptr_str[sizeof(void*) * 4];
-        sprintf(ptr_str, "%p", element->data);
-
+    size_t i = 0;
+    hashmap_foreach_data_safe(element,&rpc_struct->map,pos){
         if (rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown) {
             // Ищем ptr в ptr_map
-            struct rpc_struct_duplicate_info* info = hashtable_get(ptr_map, ptr_str);
+            struct rpc_struct_duplicate_info* info = hashmap_get(&ptr_map, element->data);
             if (info == NULL) {
                 // Новый объект — расширяем массив при необходимости
                 if (count == capacity) {
@@ -349,24 +363,18 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
                 info->duplicates = NULL;
 
                 // Добавляем в хеш-таблицу
-                hashtable_set(ptr_map, strdup(ptr_str), info);
+                hashmap_put(&ptr_map, element->data, info);
             } else {
                 //adding keys to duplicates, since wine dont know ammount of duplicates before hand, just do realloc!
                 assert((info->duplicates = realloc(info->duplicates, ++info->duplicates_len * sizeof(*info->duplicates))) != NULL);
                 info->duplicates[info->duplicates_len - 1] = keys[i];
             }
         }
+        i++;
     }
-
-    char** ptr_map_keys = hashtable_get_keys(ptr_map);
-    for(size_t i = 0; i <ptr_map->size; i++){
-        free(ptr_map_keys[i]);
-    }
-    free(ptr_map_keys);
-    hashtable_destroy(ptr_map);
 
     free(keys);
-
+    hashmap_cleanup(&ptr_map);
     if (count == 0) {
         free(duplicates);
         rpc_struct_manual_unlock(rpc_struct);
@@ -382,31 +390,25 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
 #define STRINGIFY(x) #x
 json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
     pthread_mutex_lock(&rpc_struct->lock);
-    hashtable* dupless_ht = malloc(sizeof(*dupless_ht)); assert(dupless_ht);
-
-    dupless_ht->size = rpc_struct->ht->size;
-    dupless_ht->capacity = rpc_struct->ht->capacity;
-    assert(pthread_mutex_init(&dupless_ht->lock,NULL) == 0);
-    dupless_ht->body = malloc(dupless_ht->capacity * sizeof(*dupless_ht->body)); assert(dupless_ht);
-    memcpy(dupless_ht->body,rpc_struct->ht->body,sizeof(hashtable_entry) * dupless_ht->capacity);
+    rpc_struct_t dupless_struct = rpc_struct_copy(rpc_struct);
 
     size_t dups_len = 0;
     struct rpc_struct_duplicate_info* dups = rpc_struct_found_duplicates(rpc_struct,&dups_len);
 
+    const char* dsr_foreach_key = NULL;
+    struct rpc_container_element* dsr_el = NULL;
+    void* dsr_pos = NULL;
+
     size_t skip_items = 0;
-    char** keys = rpc_struct_keys(rpc_struct); //get keys for removing RPC_unknown!
-    for(size_t i = 0; i < rpc_struct_length(rpc_struct); i++){
-        struct rpc_container_element* element = hashtable_get(dupless_ht,keys[i]);
-        if(element->type == RPC_unknown){
-            hashtable_remove(dupless_ht, keys[i]);
+    hashmap_foreach_safe(dsr_foreach_key,dsr_el,&dupless_struct->map,dsr_pos){
+        if(dsr_el->type == RPC_unknown){
+            rpc_struct_remove(dupless_struct,(char*)dsr_foreach_key);
             skip_items++;
         }
     }
-    free(keys);
-
     for(size_t i = 0; i < dups_len; i++){
         for(size_t j = 0; j < dups[i].duplicates_len; j++){
-            hashtable_remove(dupless_ht,dups[i].duplicates[j]);
+            rpc_struct_remove(dupless_struct,dups[i].duplicates[j]);
         }
     }
 
@@ -417,9 +419,11 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
     json_t* serialised = json_object();
     json_object_set_new(root,"serialised",serialised);
 
-    char** dupless_keys = hashtable_get_keys(dupless_ht);
-    for(size_t i = 0; i < dupless_ht->size; i++){
-        struct rpc_container_element* el = hashtable_get(dupless_ht, dupless_keys[i]);
+    void* main_pos = NULL;
+    const char* main_foreach_key = NULL;
+    struct rpc_container_element* el = NULL;
+
+    hashmap_foreach_safe(main_foreach_key,el,&dupless_struct->map,main_pos){
         json_t* item = NULL;
         if(rpc_is_pointer(el->type) && el->type != RPC_string){
             switch(el->type){
@@ -437,47 +441,46 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
         } else {
             switch(el->type){
                 case RPC_number:{
-                        json_int_t json_int = 0;
-                        switch(el->length){
-                            case sizeof(uint8_t):
-                                json_int = *(uint8_t*)el->data;
-                                break;
-                            case sizeof(uint16_t):
-                                json_int = *(uint16_t*)el->data;
-                                break;
-                            case sizeof(uint32_t):
-                                json_int = *(uint32_t*)el->data;
-                                break;
-                            case sizeof(uint64_t):
-                                json_int = *(uint64_t*)el->data;
-                                break;
-                        }
-                        item = json_integer(json_int);
+                    json_int_t json_int = 0;
+                    switch(el->length){
+                        case sizeof(uint8_t):
+                            json_int = *(uint8_t*)el->data;
+                            break;
+                        case sizeof(uint16_t):
+                            json_int = *(uint16_t*)el->data;
+                            break;
+                        case sizeof(uint32_t):
+                            json_int = *(uint32_t*)el->data;
+                            break;
+                        case sizeof(uint64_t):
+                            json_int = *(uint64_t*)el->data;
+                            break;
                     }
-                    break;
-                case RPC_real:{
-                        double json_double = 0;
-                        switch(el->length){
-                            case sizeof(float):
-                                json_double = *(float*)el->data;
-                                break;
-                            case sizeof(double):
-                                json_double = *(double*)el->data;
-                                break;
-                        }
-                        item = json_real(json_double);
-                    }
-                    break;
-                case RPC_string:
-                    item = json_string(el->data);
-                    break;
+                    item = json_integer(json_int);
+                }
+                break;
+            case RPC_real:{
+                double json_double = 0;
+                switch(el->length){
+                    case sizeof(float):
+                        json_double = *(float*)el->data;
+                        break;
+                    case sizeof(double):
+                        json_double = *(double*)el->data;
+                        break;
+                }
+                item = json_real(json_double);
+                }
+                break;
+                    case RPC_string:
+                        item = json_string(el->data);
+                        break;
                 default: break;
             }
         }
-        json_object_set_new(serialised,dupless_keys[i], item);
+        json_object_set_new(serialised,main_foreach_key, item);
     }
-    free(dupless_keys);
-    hashtable_destroy(dupless_ht);
+    rpc_struct_free(dupless_struct);
 
     json_t* duplicates = json_object();
     json_object_set_new(root,"duplicates",duplicates);
@@ -587,30 +590,23 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     rpc_struct_t copy = rpc_struct_create();
     rpc_struct_id_set(copy, rpc_struct_id_get(original));
 
-    copy->ht->capacity = original->ht->capacity;
-    copy->ht->size = original->ht->size;
-    assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
-    memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
-
-    for(size_t i = 0; i < copy->ht->capacity; i++){
-        if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
-            copy->ht->body[i].key = strdup(copy->ht->body[i].key); //recoping keys because it WILL cause double-free if we not done this
-            copy->ht->body[i].value = copy((struct rpc_container_element*)copy->ht->body[i].value);
-
-            struct rpc_container_element* element = copy->ht->body[i].value;
-            if(!rpc_is_pointer(element->type) || element->type == RPC_string){
-                void* tmp = malloc(element->length); assert(tmp);
-                memcpy(tmp,element->data,element->length);
-                element->data = tmp;
-            } else if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-                prec_rpc_udata udat = {
-                    .name = copy->ht->body[i].key,
-                    .origin = copy,
-                    .free = rpc_freefn_of(element->type),
-                };
-                prec_increment(prec_get(element->data),&udat);
-            }
+    void* pos = NULL;
+    const char* foreach_key = NULL;
+    struct rpc_container_element* element = NULL;
+    hashmap_foreach_safe(foreach_key,element,&original->map,pos){
+        struct rpc_container_element* element_copy = copy(element);
+        if(!rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string){
+            element_copy->data = malloc(element->length); assert(element_copy->data);
+            memcpy(element_copy->data, element->data, element_copy->length);
+        } else if(rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string && element_copy->type != RPC_unknown){
+            prec_rpc_udata udat = {
+                .name = (char*)foreach_key,
+                .origin = copy,
+                .free = rpc_freefn_of(element_copy->type),
+            };
+            prec_increment(prec_get(element_copy->data),&udat);
         }
+        rpc_struct_set_internal(copy,(char*)foreach_key,element_copy);
     }
     copy->copyof = original;
     rpc_struct_manual_unlock(original);
@@ -621,74 +617,65 @@ rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
     rpc_struct_t copy = rpc_struct_create();
     rpc_struct_id_set(copy, rpc_struct_id_get(original));
 
-    copy->ht->capacity = original->ht->capacity;
-    copy->ht->size = original->ht->size;
-    assert((copy->ht->body = realloc(copy->ht->body,copy->ht->capacity * sizeof(*copy->ht->body))));
-    memcpy(copy->ht->body,original->ht->body,sizeof(*copy->ht->body) * copy->ht->capacity);
+    HASHMAP(void,void) duptrack;
+    hashmap_init(&duptrack,ptracker_hash_ptr,ptracker_ptr_cmp);
 
-    hashtable* dup_track = hashtable_create();
+    void* pos = NULL;
+    const char* foreach_key = NULL;
+    struct rpc_container_element* element = NULL;
+    hashmap_foreach_safe(foreach_key,element,&original->map,pos){
+        struct rpc_container_element* element_copy = copy(element);
+        if(!rpc_is_pointer(element_copy->type) || element_copy->type == RPC_string && element_copy->type != RPC_unknown){
+            void* tmp = malloc(element_copy->length); assert(tmp);
+            memcpy(tmp,element_copy->data,element_copy->length);
+            element_copy->data = tmp;
+        } else if(rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string && element_copy->type != RPC_unknown){
 
-    for(size_t i = 0; i < copy->ht->capacity; i++){
-        if(copy->ht->body[i].key != NULL && copy->ht->body[i].key != (void*)0xDEAD){
-            copy->ht->body[i].key = strdup(copy->ht->body[i].key); //recoping keys because it WILL cause double-free if we not done this
-            copy->ht->body[i].value = copy((struct rpc_container_element*)copy->ht->body[i].value);
-
-            struct rpc_container_element* element = copy->ht->body[i].value;
-            if(!rpc_is_pointer(element->type) || element->type == RPC_string){
-                void* tmp = malloc(element->length); assert(tmp);
-                memcpy(tmp,element->data,element->length);
-                element->data = tmp;
-            } else if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-                char dup_key[sizeof(void*) * 4];
-                sprintf(dup_key, "%p", element->data);
-
-                switch(element->type){
-                    case RPC_struct:{
-                            void* whose_dup = hashtable_get(dup_track, dup_key);
-                            if(whose_dup == NULL){
-                                element->data = rpc_struct_deep_copy(element->data);
-                                hashtable_set(dup_track, strdup(dup_key), element->data);
-                            } else element->data = whose_dup;
-                        }
-                        break;
-                    case RPC_sizedbuf:{
-                        void* whose_dup = hashtable_get(dup_track, dup_key);
-                        if(whose_dup == NULL){
-                            element->data = rpc_sizedbuf_copy(element->data);
-                            hashtable_set(dup_track, strdup(dup_key), element->data);
-                        } else element->data = whose_dup;
-                    }
-                    break;
-                    case RPC_function:{
-                        void* whose_dup = hashtable_get(dup_track, dup_key);
-                        if(whose_dup == NULL){
-                            element->data = rpc_function_copy(element->data);
-                            hashtable_set(dup_track, strdup(dup_key), element->data);
-                        } else element->data = whose_dup;
-                    }
-                    break;
-
-                    default:break;
+            switch(element_copy->type){
+                case RPC_struct:{
+                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    if(is_copy == NULL){
+                        void* old_ptr = element_copy->data;
+                        element_copy->data = rpc_struct_deep_copy(element_copy->data);
+                        hashmap_put(&duptrack,old_ptr,element_copy->data);
+                    } else element_copy->data = is_copy;
                 }
-                prec_rpc_udata udat = {
-                    .name = copy->ht->body[i].key,
-                    .origin = copy,
-                    .free = rpc_freefn_of(element->type)
-                };
-                prec_t prec = prec_get(element->data);
-                if(prec == NULL) prec = prec_new(element->data,rpc_struct_default_prec_cbs);
+                break;
 
-                prec_increment(prec,&udat);
+                case RPC_sizedbuf:{
+                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    if(is_copy == NULL){
+                        void* old_ptr = element_copy->data;
+                        element_copy->data = rpc_sizedbuf_copy(element_copy->data);
+                        hashmap_put(&duptrack,old_ptr,element_copy->data);
+                    } else element_copy->data = is_copy;
+                }
+                break;
+
+                case RPC_function:{
+                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    if(is_copy == NULL){
+                        void* old_ptr = element_copy->data;
+                        element_copy->data = rpc_function_copy(element_copy->data);
+                        hashmap_put(&duptrack,old_ptr,element_copy->data);
+                    } else element_copy->data = is_copy;
+                }
+                break;
+
+                default: break;
             }
-        }
-    }
-    char** free_duptrack_keys = hashtable_get_keys(dup_track);
-    for(size_t i = 0; i < dup_track->size; i++){
-        free(free_duptrack_keys[i]);
-    }
-    free(free_duptrack_keys);
-    hashtable_destroy(dup_track);
 
+            prec_rpc_udata udat = {
+                .name = (char*)foreach_key,
+                .origin = copy,
+                .free = rpc_freefn_of(element_copy->type),
+            };
+            prec_increment(prec_get(element_copy->data),&udat);
+        }
+
+        rpc_struct_set_internal(copy,(char*)foreach_key,element_copy);
+    }
+    hashmap_cleanup(&duptrack);
     copy->copyof = original;
     rpc_struct_manual_unlock(original);
     return copy;
@@ -710,31 +697,39 @@ rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct){
 
 size_t rpc_struct_length(rpc_struct_t rpc_struct){
     assert(rpc_struct);
-    return rpc_struct->ht->size;
+    return hashmap_size(&rpc_struct->map);
 }
 char** rpc_struct_keys(rpc_struct_t rpc_struct){
     assert(rpc_struct);
-    pthread_mutex_lock(&rpc_struct->lock);
-    char** keys =  hashtable_get_keys(rpc_struct->ht);
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_lock(rpc_struct);
+    char** keys = malloc(sizeof(*keys) * hashmap_size(&rpc_struct->map)); assert(keys);
+
+    size_t i = 0;
+    void* pos = NULL;
+    const char* foreach_key = NULL;
+    hashmap_foreach_key_safe(foreach_key,&rpc_struct->map,pos){
+        keys[i++] = (char*)foreach_key;
+    }
+
+    rpc_struct_manual_unlock(rpc_struct);
 
     return keys;
 }
 
 enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
     assert(rpc_struct);
-    pthread_mutex_lock(&rpc_struct->lock);
-    struct rpc_container_element* element = hashtable_get(rpc_struct->ht,key);
+    rpc_struct_manual_lock(rpc_struct);
+    struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);
     enum rpc_types ret =  (element == NULL ? 0 : element->type);
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_unlock(rpc_struct);
 
     return ret;
 }
 
 int rpc_struct_exists(rpc_struct_t rpc_struct, char* key){
-    pthread_mutex_lock(&rpc_struct->lock);
-    int ret =  (hashtable_get(rpc_struct->ht,key) == NULL ? 0 : 1);
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_lock(rpc_struct);
+    int ret = (rpc_struct_get_internal(rpc_struct,key) == NULL ? 0 : 1);
+    rpc_struct_manual_unlock(rpc_struct);
 
     return ret;
 }
@@ -742,8 +737,8 @@ int rpc_struct_exists(rpc_struct_t rpc_struct, char* key){
 int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element){
     if(element->data == NULL) {free(element); return 1;}
 
-    pthread_mutex_lock(&rpc_struct->lock);
-    if(hashtable_get(rpc_struct->ht,key) == NULL){
+    rpc_struct_manual_lock(rpc_struct);
+    if(hashmap_get(&rpc_struct->map,key) == NULL){
         if(element->type == RPC_string){
             element->data = strdup(element->data); assert(element->data);
             element->length = strlen(element->data) + 1;
@@ -759,36 +754,35 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_conta
             };
             prec_increment(prec,&udat);
         }
-        hashtable_set(rpc_struct->ht,strdup(key),element);
-        pthread_mutex_unlock(&rpc_struct->lock);
+        hashmap_put(&rpc_struct->map,key,element);
+        rpc_struct_manual_unlock(rpc_struct);
         return 0;
     }
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_unlock(rpc_struct);
     return 1;
 }
 
 struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
     struct rpc_container_element* cont = NULL;
-    pthread_mutex_lock(&rpc_struct->lock);
+    rpc_struct_manual_lock(rpc_struct);
     if(rpc_struct && key){
-        cont = hashtable_get(rpc_struct->ht,key);
+        cont = hashmap_get(&rpc_struct->map,key);
     }
-    pthread_mutex_unlock(&rpc_struct->lock);
+    rpc_struct_manual_unlock(rpc_struct);
 
     return cont;
 }
 
 void rpc_struct_decrement_refcount(void* ptr){
-    prec_t prec = prec_get(ptr);
-    if(prec) prec_decrement(prec,NULL);
+    prec_decrement(prec_get(ptr),NULL);
 }
 
 uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
     uint64_t hash = 0;
-    pthread_mutex_lock(&rpc_struct->lock);
-    char** keys = rpc_struct_keys(rpc_struct);
-    for(size_t i = 0; i < rpc_struct_length(rpc_struct); i++){
-        struct rpc_container_element* element = hashtable_get(rpc_struct->ht,keys[i]);
+    rpc_struct_manual_lock(rpc_struct);
+    void* pos = NULL;
+    struct rpc_container_element* element = NULL;
+    hashmap_foreach_data_safe(element,&rpc_struct->map,pos){
         uint64_t new_hash = hash;
         if(rpc_is_pointer(element->type) && element->type != RPC_string){
             switch(element->type){
@@ -804,8 +798,8 @@ uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
 
         hash = murmur((uint8_t*)&new_hash,sizeof(new_hash));
     }
-    free(keys);
-    pthread_mutex_unlock(&rpc_struct->lock);
+
+    rpc_struct_manual_unlock(rpc_struct);
     return hash;
 }
 

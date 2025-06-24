@@ -25,7 +25,6 @@
 
 #include <ffirpc/hashmap/hashmap_base.h>
 #include <ffirpc/ptracker.h>
-#include <ffirpc/hashtable.h>
 
 #include <ffirpc/hashmap/hashmap.h>
 
@@ -41,7 +40,6 @@ static int PT_inited = 0;
 struct _prec{
     void* ptr;
 
-    atomic_int context_refcount;
     void* context;
 
     struct prec_callbacks cbs;
@@ -67,17 +65,17 @@ prec_t prec_get(void* ptr){
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
     ptracker_init();
-    assert(prec_get(ptr) == NULL);
 
-    prec_t new = malloc(sizeof(*new)); assert(new);
-    new->ptr = ptr;
-    new->refcount = 0; //always increment after new!
-    new->context = NULL;
-    new->context_refcount = 1; //it will only be incremented on prec_merge
-    new->cbs = cbs;
+    prec_t new = prec_get(ptr);
+    if(new == NULL){
+        new = malloc(sizeof(*new)); assert(new);
+        new->ptr = ptr;
+        new->refcount = 0; //always increment after new!
+        new->context = NULL;
+        new->cbs = cbs;
 
-    assert(hashmap_insert(&ptracker,ptr,new,NULL) == 1);
-
+        assert(hashmap_insert(&ptracker,ptr,new,NULL) == 1);
+    }
     return new;
 }
 
