@@ -22,9 +22,7 @@
 
 
 
-#include "ffirpc/hashmap/hashmap.h"
-#include "ffirpc/hashmap/hashmap_base.h"
-#include <asm-generic/errno-base.h>
+#include <ffirpc/hashmap/hashmap.h>
 #include <ffirpc/rpc_client.h>
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_server_internal.h>
