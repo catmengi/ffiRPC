@@ -1,0 +1,8 @@
+test
+test32
+valgrind_test
+donkey
+*.o
+*.exe
+*.dll
+compile_commands.json
