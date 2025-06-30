@@ -22,7 +22,7 @@
 
 
 
-
+#include <ffirpc/rpc_config.h>
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_server.h>
 #include <ffirpc/rpc_object.h>
@@ -67,10 +67,13 @@ void time_logger(const char *format, ...) {
 //=============================================
 
 //RPC server global variables! ================
+#ifdef RPC_NETWORK
 static rpc_struct_t RS_netports = NULL;
-static rpc_struct_t RS_methods = NULL; //server methonds, NOT rpc functions, used to handle client's requests;
 static rpc_struct_t RS_persondata = NULL;
 static threadpool RS_thpool = NULL;
+#endif
+
+static rpc_struct_t RS_methods = NULL; //server methonds, NOT rpc functions, used to handle client's requests;
 //=============================================
 
 //RPC server static function prototypes! ======
@@ -106,15 +109,18 @@ static void RS_init_methods(){
 }
 
 void rpc_server_init(){
+    #ifdef RPC_NETWORK
     RS_netports = rpc_struct_create();
     RS_persondata = rpc_struct_create();
+    RS_thpool = thpool_init(sysconf(_SC_NPROCESSORS_ONLN));
+    #endif
 
     RS_methods = rpc_struct_create();
     RS_init_methods();
 
-    RS_thpool = thpool_init(sysconf(_SC_NPROCESSORS_ONLN));
 }
 
+#ifdef RPC_NETWORK
 int rpc_server_launch_port(short port){
     char acc[sizeof(int) * 4];
     sprintf(acc,"%d",(int)port);
@@ -238,6 +244,7 @@ error_shut:
     close(fd);
     return;
 }
+#endif
 
 //same as net_job but without network support, will handle requests from local rpc client (i.e in same process)
 int rpc_server_localnet_job(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){

@@ -6,3 +6,4 @@ donkey
 *.exe
 *.dll
 compile_commands.json
+vgcore*

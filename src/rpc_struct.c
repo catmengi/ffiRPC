@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 
-
+#include <ffirpc/rpc_config.h>
 #include <ffirpc/rpc_struct_internal.h>
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/hashmap/hashmap.h>
@@ -30,7 +30,10 @@
 #include <ffirpc/ptracker.h>
 #include <ffirpc/sc_queue.h>
 
+#ifdef RPC_SERIALISERS
 #include <jansson.h>
+#endif
+
 #include <pthread.h>
 #include <stdint.h>
 #include <stdatomic.h>
@@ -43,8 +46,10 @@
 struct prec_callbacks rpc_struct_default_prec_cbs;
 char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
+static struct sc_queue_ptr RSTRUCT_elreuse;
+
 struct _rpc_struct{
-    HASHMAP(char,void) map;
+    HASHMAP(char,rpc_type_t) map;
     pthread_mutex_t lock;
 
     char ID[RPC_STRUCT_ID_SIZE];
@@ -73,6 +78,12 @@ uint64_t murmur(uint8_t* inbuf,uint32_t keylen){
 }
 
 static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
+
+__attribute__((__constructor__))
+void rpc_struct_init(){
+    sc_queue_init(&RSTRUCT_elreuse);
+}
+
 rpc_struct_t rpc_struct_create(void){
     rpc_struct_t rpc_struct = (rpc_struct_t)malloc(sizeof(*rpc_struct));
     assert(rpc_struct);
@@ -291,18 +302,21 @@ rpc_struct_free_cb rpc_freefn_of(enum rpc_types type){
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
     if(rpc_struct && key){
         pthread_mutex_lock(&rpc_struct->lock);
-        struct rpc_container_element* element = hashmap_get(&rpc_struct->map,key);
+        rpc_type_t* element = hashmap_get(&rpc_struct->map,key);
         if(element){
             if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
                 prec_rpc_udata udat = {
                     .name = key,
                     .origin = rpc_struct,
                 };
-                prec_decrement(prec_get(element->data),&udat);
-            } else if(element->type == RPC_string || !rpc_is_pointer(element->type)) free(element->data);
+                prec_decrement(prec_get(element->data_container.ptr_value),&udat);
+            } else if(element->type == RPC_string) free(element->data_container.ptr_value);
 
             hashmap_remove(&rpc_struct->map,key);
-            free(element);
+
+            if(sc_queue_size(&RSTRUCT_elreuse) < RPC_STRUCT_MAX_REUSE_ELEMENTS) sc_queue_add_first(&RSTRUCT_elreuse,element);
+            else free(element);
+
             pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
         }
@@ -321,6 +335,7 @@ struct rpc_struct_duplicate_info {
     char** duplicates;
 };
 
+#ifdef RPC_SERIALISERS
 //THIS CODE WAS HUGGELY REFACTORED VIA AI AND EDITED BY ME(Catmengi), IF YOU FIND BUG IN IT, REPORT IMMEDIATLY!
 struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_struct, size_t* len_output) {
     assert(rpc_struct);
@@ -342,13 +357,13 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
     size_t count = 0;
 
     void* pos = NULL;
-    struct rpc_container_element* element = NULL;
+    rpc_type_t* element = NULL;
 
     size_t i = 0;
     hashmap_foreach_data_safe(element,&rpc_struct->map,pos){
         if (rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown) {
             // Ищем ptr в ptr_map
-            struct rpc_struct_duplicate_info* info = hashmap_get(&ptr_map, element->data);
+            struct rpc_struct_duplicate_info* info = hashmap_get(&ptr_map, element->data_container.ptr_value);
             if (info == NULL) {
                 // Новый объект — расширяем массив при необходимости
                 if (count == capacity) {
@@ -363,7 +378,7 @@ struct rpc_struct_duplicate_info* rpc_struct_found_duplicates(rpc_struct_t rpc_s
                 info->duplicates = NULL;
 
                 // Добавляем в хеш-таблицу
-                hashmap_put(&ptr_map, element->data, info);
+                hashmap_put(&ptr_map, element->data_container.ptr_value, info);
             } else {
                 //adding keys to duplicates, since wine dont know ammount of duplicates before hand, just do realloc!
                 assert((info->duplicates = realloc(info->duplicates, ++info->duplicates_len * sizeof(*info->duplicates))) != NULL);
@@ -396,7 +411,7 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
     struct rpc_struct_duplicate_info* dups = rpc_struct_found_duplicates(rpc_struct,&dups_len);
 
     const char* dsr_foreach_key = NULL;
-    struct rpc_container_element* dsr_el = NULL;
+    rpc_type_t* dsr_el = NULL;
     void* dsr_pos = NULL;
 
     size_t skip_items = 0;
@@ -421,20 +436,20 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
 
     void* main_pos = NULL;
     const char* main_foreach_key = NULL;
-    struct rpc_container_element* el = NULL;
+    rpc_type_t* el = NULL;
 
     hashmap_foreach_safe(main_foreach_key,el,&dupless_struct->map,main_pos){
         json_t* item = NULL;
         if(rpc_is_pointer(el->type) && el->type != RPC_string){
             switch(el->type){
                 case RPC_struct:
-                    item = rpc_struct_serialize(el->data);
+                    item = rpc_struct_serialize(el->data_container.ptr_value);
                     break;
                 case RPC_function:
-                    item = rpc_function_serialize(el->data);
+                    item = rpc_function_serialize(el->data_container.ptr_value);
                     break;
                 case RPC_sizedbuf:
-                    item = rpc_sizedbuf_serialize(el->data);
+                    item = rpc_sizedbuf_serialize(el->data_container.ptr_value);
                     break;
                 default: break;
             }
@@ -444,16 +459,16 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
                     json_int_t json_int = 0;
                     switch(el->length){
                         case sizeof(uint8_t):
-                            json_int = *(uint8_t*)el->data;
+                            json_int = *(uint8_t*)el->data_container.raw_value;
                             break;
                         case sizeof(uint16_t):
-                            json_int = *(uint16_t*)el->data;
+                            json_int = *(uint16_t*)el->data_container.raw_value;
                             break;
                         case sizeof(uint32_t):
-                            json_int = *(uint32_t*)el->data;
+                            json_int = *(uint32_t*)el->data_container.raw_value;
                             break;
                         case sizeof(uint64_t):
-                            json_int = *(uint64_t*)el->data;
+                            json_int = *(uint64_t*)el->data_container.raw_value;
                             break;
                     }
                     item = json_integer(json_int);
@@ -463,17 +478,17 @@ json_t* rpc_struct_serialize(rpc_struct_t rpc_struct){
                 double json_double = 0;
                 switch(el->length){
                     case sizeof(float):
-                        json_double = *(float*)el->data;
+                        json_double = *(float*)el->data_container.raw_value;
                         break;
                     case sizeof(double):
-                        json_double = *(double*)el->data;
+                        json_double = *(double*)el->data_container.raw_value;
                         break;
                 }
                 item = json_real(json_double);
                 }
                 break;
                     case RPC_string:
-                        item = json_string(el->data);
+                        item = json_string(el->data_container.ptr_value);
                         break;
                 default: break;
             }
@@ -567,15 +582,7 @@ rpc_struct_t rpc_struct_deserialize(json_t* json){
         const char* key = NULL;
         json_object_foreach(duplicates,key,item){
             const char* original = json_string_value(item);
-
-            struct rpc_container_element* original_cont = rpc_struct_get_internal(new,(char*)original);
-            assert(original_cont);
-
-            struct rpc_container_element* dup_cont = malloc(sizeof(*dup_cont)); assert(dup_cont);
-
-            *dup_cont = *original_cont;
-
-            rpc_struct_set_internal(new,(char*)key,dup_cont);
+            rpc_struct_set_internal(new,(char*)key,rpc_struct_get_internal(new,(char*)original));
         }
     }
     return new;
@@ -584,6 +591,7 @@ bad_exit:
     rpc_struct_free(new);
     return NULL;
 }
+#endif
 
 rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     rpc_struct_manual_lock(original);
@@ -592,19 +600,16 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
 
     void* pos = NULL;
     const char* foreach_key = NULL;
-    struct rpc_container_element* element = NULL;
+    rpc_type_t* element = NULL;
     hashmap_foreach_safe(foreach_key,element,&original->map,pos){
-        struct rpc_container_element* element_copy = copy(element);
-        if(!rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string){
-            element_copy->data = malloc(element->length); assert(element_copy->data);
-            memcpy(element_copy->data, element->data, element_copy->length);
-        } else if(rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string && element_copy->type != RPC_unknown){
+        rpc_type_t element_copy = *element;
+        if(rpc_is_pointer(element_copy.type) && element_copy.type != RPC_string && element_copy.type != RPC_unknown){
             prec_rpc_udata udat = {
                 .name = (char*)foreach_key,
                 .origin = copy,
-                .free = rpc_freefn_of(element_copy->type),
+                .free = rpc_freefn_of(element_copy.type),
             };
-            prec_increment(prec_get(element_copy->data),&udat);
+            prec_increment(prec_get(element_copy.data_container.ptr_value),&udat);
         }
         rpc_struct_set_internal(copy,(char*)foreach_key,element_copy);
     }
@@ -612,6 +617,7 @@ rpc_struct_t rpc_struct_copy(rpc_struct_t original){
     rpc_struct_manual_unlock(original);
     return copy;
 }
+
 rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
     rpc_struct_manual_lock(original);
     rpc_struct_t copy = rpc_struct_create();
@@ -622,43 +628,43 @@ rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
 
     void* pos = NULL;
     const char* foreach_key = NULL;
-    struct rpc_container_element* element = NULL;
+    rpc_type_t* element = NULL;
     hashmap_foreach_safe(foreach_key,element,&original->map,pos){
-        struct rpc_container_element* element_copy = copy(element);
-        if(!rpc_is_pointer(element_copy->type) || element_copy->type == RPC_string && element_copy->type != RPC_unknown){
-            void* tmp = malloc(element_copy->length); assert(tmp);
-            memcpy(tmp,element_copy->data,element_copy->length);
-            element_copy->data = tmp;
-        } else if(rpc_is_pointer(element_copy->type) && element_copy->type != RPC_string && element_copy->type != RPC_unknown){
+        rpc_type_t element_copy = *element;
+        if(element_copy.type == RPC_string){
+            void* tmp = malloc(element_copy.length); assert(tmp);
+            memcpy(tmp,element_copy.data_container.ptr_value,element_copy.length);
+            element_copy.data_container.ptr_value = tmp;
+        } else if(rpc_is_pointer(element_copy.type) && element_copy.type != RPC_string && element_copy.type != RPC_unknown){
 
-            switch(element_copy->type){
+            switch(element_copy.type){
                 case RPC_struct:{
-                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    void* is_copy = hashmap_get(&duptrack,element_copy.data_container.ptr_value);
                     if(is_copy == NULL){
-                        void* old_ptr = element_copy->data;
-                        element_copy->data = rpc_struct_deep_copy(element_copy->data);
-                        hashmap_put(&duptrack,old_ptr,element_copy->data);
-                    } else element_copy->data = is_copy;
+                        void* old_ptr = element_copy.data_container.ptr_value;
+                        element_copy.data_container.ptr_value = rpc_struct_deep_copy(element_copy.data_container.ptr_value);
+                        hashmap_put(&duptrack,old_ptr,element_copy.data_container.ptr_value);
+                    } else element_copy.data_container.ptr_value = is_copy;
                 }
                 break;
 
                 case RPC_sizedbuf:{
-                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    void* is_copy = hashmap_get(&duptrack,element_copy.data_container.ptr_value);
                     if(is_copy == NULL){
-                        void* old_ptr = element_copy->data;
-                        element_copy->data = rpc_sizedbuf_copy(element_copy->data);
-                        hashmap_put(&duptrack,old_ptr,element_copy->data);
-                    } else element_copy->data = is_copy;
+                        void* old_ptr = element_copy.data_container.ptr_value;
+                        element_copy.data_container.ptr_value = rpc_sizedbuf_copy(element_copy.data_container.ptr_value);
+                        hashmap_put(&duptrack,old_ptr,element_copy.data_container.ptr_value);
+                    } else element_copy.data_container.ptr_value = is_copy;
                 }
                 break;
 
                 case RPC_function:{
-                    void* is_copy = hashmap_get(&duptrack,element_copy->data);
+                    void* is_copy = hashmap_get(&duptrack,element_copy.data_container.ptr_value);
                     if(is_copy == NULL){
-                        void* old_ptr = element_copy->data;
-                        element_copy->data = rpc_function_copy(element_copy->data);
-                        hashmap_put(&duptrack,old_ptr,element_copy->data);
-                    } else element_copy->data = is_copy;
+                        void* old_ptr = element_copy.data_container.ptr_value;
+                        element_copy.data_container.ptr_value = rpc_function_copy(element_copy.data_container.ptr_value);
+                        hashmap_put(&duptrack,old_ptr,element_copy.data_container.ptr_value);
+                    } else element_copy.data_container.ptr_value = is_copy;
                 }
                 break;
 
@@ -668,9 +674,9 @@ rpc_struct_t rpc_struct_deep_copy(rpc_struct_t original){
             prec_rpc_udata udat = {
                 .name = (char*)foreach_key,
                 .origin = copy,
-                .free = rpc_freefn_of(element_copy->type),
+                .free = rpc_freefn_of(element_copy.type),
             };
-            prec_increment(prec_get(element_copy->data),&udat);
+            prec_increment(prec_get(element_copy.data_container.ptr_value),&udat);
         }
 
         rpc_struct_set_internal(copy,(char*)foreach_key,element_copy);
@@ -719,54 +725,60 @@ char** rpc_struct_keys(rpc_struct_t rpc_struct){
 enum rpc_types rpc_struct_typeof(rpc_struct_t rpc_struct, char* key){
     assert(rpc_struct);
     rpc_struct_manual_lock(rpc_struct);
-    struct rpc_container_element* element = rpc_struct_get_internal(rpc_struct,key);
-    enum rpc_types ret =  (element == NULL ? 0 : element->type);
+    rpc_type_t element = rpc_struct_get_internal(rpc_struct,key);
     rpc_struct_manual_unlock(rpc_struct);
 
-    return ret;
+    return element.type;
 }
 
 int rpc_struct_exists(rpc_struct_t rpc_struct, char* key){
     rpc_struct_manual_lock(rpc_struct);
-    int ret = (rpc_struct_get_internal(rpc_struct,key) == NULL ? 0 : 1);
+    int ret = (rpc_struct_get_internal(rpc_struct,key).type == RPC_none ? 0 : 1);
     rpc_struct_manual_unlock(rpc_struct);
 
     return ret;
 }
 
-int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element){
-    if(element->data == NULL) {free(element); return 1;}
-
+int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, rpc_type_t element){
     rpc_struct_manual_lock(rpc_struct);
-    if(hashmap_get(&rpc_struct->map,key) == NULL){
-        if(element->type == RPC_string){
-            element->data = strdup(element->data); assert(element->data);
-            element->length = strlen(element->data) + 1;
-        }
-        if(rpc_is_pointer(element->type) && element->type != RPC_string && element->type != RPC_unknown){
-            prec_t prec = prec_get(element->data);
-            if(prec == NULL) prec = prec_new(element->data,rpc_struct_default_prec_cbs);
+    if(rpc_is_pointer(element.type) && element.data_container.ptr_value != NULL || !rpc_is_pointer(element.type)){
+        if(hashmap_get(&rpc_struct->map,key) == NULL){
+            if(element.type == RPC_string){
+                element.data_container.ptr_value = strdup(element.data_container.ptr_value); assert(element.data_container.ptr_value);
+                element.length = strlen(element.data_container.ptr_value) + 1;
+            }
+            if(rpc_is_pointer(element.type) && element.type != RPC_string && element.type != RPC_unknown){
+                prec_t prec = prec_get(element.data_container.ptr_value);
+                if(prec == NULL) prec = prec_new(element.data_container.ptr_value,rpc_struct_default_prec_cbs);
 
-            prec_rpc_udata udat = {
-                .name = key,
-                .origin = rpc_struct,
-                .free = rpc_freefn_of(element->type),
-            };
-            prec_increment(prec,&udat);
+                prec_rpc_udata udat = {
+                    .name = key,
+                    .origin = rpc_struct,
+                    .free = rpc_freefn_of(element.type),
+                };
+                prec_increment(prec,&udat);
+            }
+            rpc_type_t* set_element = (sc_queue_size(&RSTRUCT_elreuse) == 0 ?
+                                                            malloc(sizeof(element)) : sc_queue_del_first(&RSTRUCT_elreuse));
+            assert(set_element);
+            *set_element = element;
+
+            assert(hashmap_put(&rpc_struct->map,key,set_element) == 0);
+            rpc_struct_manual_unlock(rpc_struct);
+            return 0;
         }
-        hashmap_put(&rpc_struct->map,key,element);
-        rpc_struct_manual_unlock(rpc_struct);
-        return 0;
     }
     rpc_struct_manual_unlock(rpc_struct);
     return 1;
 }
 
-struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
-    struct rpc_container_element* cont = NULL;
+rpc_type_t rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key){
+    rpc_type_t cont = {0};
+    rpc_type_t* tmp_cont = NULL;
     rpc_struct_manual_lock(rpc_struct);
     if(rpc_struct && key){
-        cont = hashmap_get(&rpc_struct->map,key);
+        tmp_cont = hashmap_get(&rpc_struct->map,key);
+        if(tmp_cont) cont = *(rpc_type_t*)tmp_cont;
     }
     rpc_struct_manual_unlock(rpc_struct);
 
@@ -781,20 +793,23 @@ uint64_t rpc_struct_hash(rpc_struct_t rpc_struct){
     uint64_t hash = 0;
     rpc_struct_manual_lock(rpc_struct);
     void* pos = NULL;
-    struct rpc_container_element* element = NULL;
+    rpc_type_t* element = NULL;
     hashmap_foreach_data_safe(element,&rpc_struct->map,pos){
         uint64_t new_hash = hash;
-        if(rpc_is_pointer(element->type) && element->type != RPC_string){
+        if(rpc_is_pointer(element->type)){
             switch(element->type){
                 case RPC_struct:
-                    new_hash += rpc_struct_hash(element->data);
+                    new_hash += rpc_struct_hash(element->data_container.ptr_value);
                     break;
                 case RPC_sizedbuf:
-                    new_hash += rpc_sizedbuf_hash(element->data);
+                    new_hash += rpc_sizedbuf_hash(element->data_container.ptr_value);
                     break;
-                default: new_hash += murmur(element->data,sizeof(element->data)); break;
+                case RPC_string:
+                    new_hash += murmur((uint8_t*)element->data_container.ptr_value,element->length);
+                    break;
+                default: new_hash += murmur(element->data_container.ptr_value,sizeof(element->data_container.ptr_value)); break;
             }
-        } else new_hash += murmur(element->data,element->length);
+        } else new_hash += murmur((uint8_t*)element->data_container.raw_value,element->length);
 
         hash = murmur((uint8_t*)&new_hash,sizeof(new_hash));
     }

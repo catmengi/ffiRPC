@@ -22,7 +22,9 @@
 
 
 
+#include <ffirpc/rpc_config.h>
 
+#ifdef RPC_NETWORK
 #include <ffirpc/rpc_network.h>
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/sc_queue.h>
@@ -30,7 +32,6 @@
 
 #include <jansson.h>
 
-#include <errno.h>
 #include <pthread.h>
 #include <assert.h>
 #include <stdint.h>
@@ -282,3 +283,4 @@ int rpc_net_person_fd(rpc_net_person_t person){
 
     return fd;
 }
+#endif

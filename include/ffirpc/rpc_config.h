@@ -1,0 +1,8 @@
+#define RPC_STRUCT_MAX_REUSE_ELEMENTS 65536
+
+#define RPC_SERIALISERS
+#define RPC_NETWORK
+
+#ifdef RPC_NETWORK
+#define RPC_SERIALISERS
+#endif

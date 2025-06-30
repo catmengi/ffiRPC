@@ -32,10 +32,13 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifdef RPC_SERIALISERS
 #include <jansson.h>
+#endif
 
 #include <ffirpc/rpc_sizedbuf.h>
 #include <ffirpc/ptracker.h>
+#include <ffirpc/rpc_config.h>
 
 #define RPC_STRUCT_ID_SIZE 65
 
@@ -68,11 +71,15 @@ enum rpc_types{
     RPC_unknown,
 };
 
-struct rpc_container_element{
-    void* data;
+typedef struct{
+    union{
+        char raw_value[sizeof(uint64_t)];
+        void* ptr_value;
+    }data_container;
+
     size_t length;
     enum rpc_types type;
-};
+}rpc_type_t;
 
 #include <ffirpc/rpc_function.h>
 
@@ -109,6 +116,7 @@ void rpc_struct_free(rpc_struct_t rpc_struct);  //frees rpc_struct_t and ALL it'
  */
 int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with key "key" from rpc_struct and free it.
 
+#ifdef RPC_SERIALISERS
 /**
  * @brief Serializes RPC structure to json
  * @param rpc_struct Structure to serialize
@@ -126,7 +134,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key); //remove type with ke
   * @note json is encoded in specific format because of rpc_struct's metadata like ID, and duplicates
   */
  rpc_struct_t rpc_struct_deserialize(json_t* json);
-
+#endif
  /**
   * @brief Creates a full copy of an RPC structure. Copy and original still share same pointer types and AntiDoubleFree HT, but they wont cause double free if it was freed in copy or original but latter was accesed by copy or original, even if this element was added after rpc_struct_copy
   * @param original Structure to copy
@@ -186,15 +194,15 @@ int rpc_is_pointer(enum rpc_types type);
  * @param element Element to set
  * @return Status code
  */
-int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, struct rpc_container_element* element);
+int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, rpc_type_t element);
 
 /**
  * @brief Get element with name key from rpc_struct
  * @param rpc_struct RPC structure
  * @param key Name of element to retrieve
- * @return Pointer to rpc_container_element
+ * @return rpc_container_element
  */
-struct rpc_container_element* rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key);
+rpc_type_t rpc_struct_get_internal(rpc_struct_t rpc_struct, char* key);
 
 /**
  * @brief Increments rpc_struct's element refcount
@@ -265,7 +273,7 @@ rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct); //return pointer to
     int __ret = 1;\
     assert(__key != NULL);\
     if(rpc_struct_exists(__rpc_struct, __key) == 0){\
-        struct rpc_container_element* __element = calloc(1,sizeof(*__element)); assert(__element);\
+        rpc_type_t __element;\
         c_to_rpc(__element,__input);\
         __ret = rpc_struct_set_internal(__rpc_struct,__key,__element);\
     }\
@@ -286,8 +294,8 @@ rpc_struct_t rpc_struct_whose_copy(rpc_struct_t rpc_struct); //return pointer to
  *   assert(rpc_struct_get(rpc_struct,"check_int",output) == 0);
  *   assert(output == input);
  */
-#define rpc_struct_get(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){if(__element->type == ctype_to_rpc(typeof(__output))){;if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,__element->length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element->length);} __ret = 0;}}(__ret);})
+#define rpc_struct_get(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;rpc_type_t __element = rpc_struct_get_internal(__rpc_struct,__key);\
+if(__element.type != RPC_none){if(__element.type == ctype_to_rpc(typeof(__output))){;if(rpc_is_pointer(__element.type)){void* __copy = __element.data_container.ptr_value; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element.data_container.raw_value,__element.length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element.length);} __ret = 0;}}(__ret);})
 
 /**
  * @brief Gets an element without type checking
@@ -300,6 +308,6 @@ if(__element != NULL){if(__element->type == ctype_to_rpc(typeof(__output))){;if(
  * @note Similar to rpc_struct_get but without type checking
  * @warning May cause undefined behavior if types don't match
  */
-#define rpc_struct_get_unsafe(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;struct rpc_container_element* __element = rpc_struct_get_internal(__rpc_struct,__key);\
-if(__element != NULL){if(rpc_is_pointer(__element->type)){void* __copy = __element->data; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element->data,__element->length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element->length);} __ret = 0;}(__ret);})
+#define rpc_struct_get_unsafe(__rpc_struct, __key, __output)({assert(__key != NULL);int __ret = 1;rpc_type_t __element = rpc_struct_get_internal(__rpc_struct,__key);\
+if(__element.type != RPC_none){if(rpc_is_pointer(__element.type)){void* __copy = __element.data_container.ptr_value; memcpy(&__output,&__copy,sizeof(typeof(__copy)) > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : sizeof(typeof(__copy)));} else{memcpy(&__output,__element.data_container.raw_value,__element.length > sizeof(typeof(__output)) ? sizeof(typeof(__output)) : __element.length);} __ret = 0;}(__ret);})
 

@@ -25,11 +25,15 @@
 #include <ffirpc/rpc_sizedbuf.h>
 #include <ffirpc/ptracker.h>
 #include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_config.h>
 
 #include <assert.h>
-#include <jansson.h>
 #include <string.h>
 #include <stdint.h>
+
+#ifdef RPC_SERIALISERS
+#include <jansson.h>
+#endif
 
 struct _rpc_sizedbuf{
     char* buf;

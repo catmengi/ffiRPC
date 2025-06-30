@@ -58,14 +58,12 @@ INTERNAL_API void rpc_struct_prec_ctx_destroy(prec_t prec);
 #define rpc_cast_value(output, input) typeof(output) cpy = (typeof(output))input; output = cpy;
 
 #define c_to_rpc(element,var)({\
-element->type = ctype_to_rpc(typeof(var));\
+element.type = ctype_to_rpc(typeof(var));\
 char __tmp[sizeof(typeof(var))]; *(typeof(var)*)__tmp = var;\
-if(rpc_is_pointer(element->type)){\
-    element->length = 0;\
-    element->data = *(void**)__tmp;\
+if(rpc_is_pointer(element.type)){\
+    element.length = 0;\
+    element.data_container.ptr_value = *(void**)__tmp;\
 } else {\
-    element->data = malloc(sizeof(typeof(var)));\
-    assert(element->data);\
-    element->length = sizeof(typeof(var));\
-    memcpy(element->data,__tmp,element->length);\
+    element.length = sizeof(typeof(var));\
+    memcpy(element.data_container.raw_value,__tmp,element.length);\
 }})

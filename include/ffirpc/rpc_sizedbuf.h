@@ -25,10 +25,14 @@
 #pragma  once
 
 #define INTERNAL_API
+#include <ffirpc/rpc_config.h>
 
 #include <stdlib.h>
 #include <stdint.h>
+
+#ifdef RPC_SERIALISERS
 #include <jansson.h>
+#endif
 
 typedef struct _rpc_sizedbuf *rpc_sizedbuf_t;
 
@@ -41,8 +45,10 @@ INTERNAL_API void rpc_sizedbuf_free_internals(rpc_sizedbuf_t szbuf);
 
 uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf); //return a hash of szbuf
 
+#ifdef RPC_SERIALISERS
 json_t* rpc_sizedbuf_serialize(rpc_sizedbuf_t szbuf);
 rpc_sizedbuf_t rpc_sizedbuf_deserialize(json_t* json);
+#endif
 
 rpc_sizedbuf_t rpc_sizedbuf_copy(rpc_sizedbuf_t szbuf);
 

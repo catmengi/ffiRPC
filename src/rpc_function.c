@@ -25,11 +25,16 @@
 
 #include <ffirpc/rpc_function.h>
 #include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_config.h>
 
 #include <assert.h>
-#include <jansson.h>
 #include <stdint.h>
 #include <time.h>
+
+#ifdef RPC_SERIALISERS
+#include <jansson.h>
+#endif
+
 
 struct _rpc_function{
     enum rpc_types* prototype;

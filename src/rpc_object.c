@@ -242,9 +242,9 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
         }
 
         if(do_set == 1){
-            struct rpc_container_element* element = malloc(sizeof(*element));
-            element->type = arg_info->type;
-            element->data = arg_info->raw_ptr;
+            rpc_type_t element;
+            element.type = arg_info->type;
+            element.data_container.ptr_value = arg_info->raw_ptr;
             rpc_struct_set_internal(output,arg_info->key,element);
         }
         free(arg_info);
@@ -254,14 +254,13 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
 
     if(rpc_function_get_return_type(fn) != RPC_none && rpc_function_get_return_type(fn) != RPC_unknown){ //we cannot serialise RPC_unknown since it is a raw pointer
         if(!(rpc_is_pointer(rpc_function_get_return_type(fn)) && (void*)ffi_return == NULL)){
-            struct rpc_container_element* element = calloc(1,sizeof(*element)); assert(element);
-            element->type = rpc_function_get_return_type(fn);
-            if(rpc_is_pointer(element->type)){
-                element->data = (void*)ffi_return;
+            rpc_type_t element = {0};
+            element.type = rpc_function_get_return_type(fn);
+            if(rpc_is_pointer(element.type)){
+                element.data_container.ptr_value = (void*)ffi_return;
             } else {
-                element->length = sizeof(ffi_return);
-                element->data = malloc(element->length); assert(element->data);
-                memcpy(element->data,&ffi_return,element->length);
+                element.length = sizeof(ffi_return);
+                memcpy(element.data_container.raw_value,&ffi_return,element.length);
             }
             rpc_struct_set_internal(output,"return",element);
             if(rpc_function_get_return_type(fn) == RPC_string) free((char*)ffi_return); //can free, because in rpc_struct_set_internal in was strdup-ed

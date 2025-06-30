@@ -1,10 +1,8 @@
-#include "ffirpc/hashmap/hashmap_base.h"
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_client.h>
 #include <ffirpc/rpc_server.h>
 #include <ffirpc/rpc_init.h>
 #include <ffirpc/rpc_object.h>
-#include <ffirpc/hashmap/hashmap.h>
 
 #include <assert.h>
 #include <stdio.h>
@@ -12,8 +10,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-
-#include <signal.h>
 
 void check_rpc_struct_onfree_remove(){
     rpc_struct_t t = rpc_struct_create();
@@ -30,7 +26,7 @@ void check_rpc_struct_onfree_remove(){
 
     rpc_struct_free(t);
 }
-
+#ifdef RPC_SERIALISERS
 void check_rpc_struct_ids(){
     rpc_struct_t ts = rpc_struct_create();
 
@@ -94,6 +90,7 @@ void check_rpc_struct_ids(){
 
     json_decref(test);
 }
+#endif
 
 void check_copy_of(){
     rpc_struct_t o = rpc_struct_create();
@@ -116,7 +113,7 @@ void check_copy_of(){
     rpc_struct_free(t);
     rpc_struct_free(tc);
 }
-
+#ifdef RPC_SERIALISERS
 void szbuf_test(){
     rpc_struct_t s = rpc_struct_create();
 
@@ -141,6 +138,7 @@ void szbuf_test(){
 
     json_decref(ser);
 }
+#endif
 
 void basic_free_test(){
     rpc_struct_t cont = rpc_struct_create();
@@ -267,24 +265,32 @@ void obj_init(){
 }
 
 int main(){
-     signal(SIGPIPE, SIG_IGN);
-     rpc_init();
+    rpc_init();
 
+#ifdef RPC_SERIALISERS
      check_rpc_struct_ids();
+     szbuf_test();
+#endif
+
      check_rpc_struct_onfree_remove();
      check_copy_of();
-     szbuf_test();
      basic_free_test();
      adv_free_test();
      adv_free_test_fn();
      adv_free_test_sz();
      obj_init();
 
+#ifdef RPC_NETWORK
      rpc_server_launch_port(2077);
+#endif
 
      rpc_client_t client = rpc_client_create();
-     // rpc_client_connect_local(client);
+
+#ifndef RPC_NETWORK
+     rpc_client_connect_local(client);
+#else
      assert(rpc_client_connect_tcp(client,"localhost:2077") == 0);
+#endif
 
      rpc_struct_t cobj = rpc_client_cobject_get(client,"console");
 
@@ -309,5 +315,7 @@ int main(){
      rpc_client_free(client);
      rpc_struct_free(refdbg);
 
+#ifdef RPC_NETWORK
      rpc_server_stop_port(2077);
+#endif
 }
