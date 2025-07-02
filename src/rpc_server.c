@@ -88,6 +88,7 @@ static int ping(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 static int disconnect(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 static int get_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
+static int is_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);
 //=============================================
 
 static void RS_init_methods(){
@@ -95,6 +96,7 @@ static void RS_init_methods(){
     rpc_struct_set(RS_methods, "disconnect", (void*)disconnect);
     rpc_struct_set(RS_methods, "get_object",(void*)get_cobject);
     rpc_struct_set(RS_methods, "call", (void*)call);
+    rpc_struct_set(RS_methods, "is_cobject", (void*)is_cobject);
 
     time_logger("%s :: registered %zu methods\n",__PRETTY_FUNCTION__,rpc_struct_length(RS_methods));
     time_logger("%s :: ",__PRETTY_FUNCTION__);
@@ -268,6 +270,18 @@ static int ping(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
 static int disconnect(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     return 1;
 }
+static int is_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
+    char* ID = NULL;
+    int is_cobject = 0;
+    if(rpc_struct_get(request,"ID",ID) == 0){
+        rpc_struct_t cobj = rpc_cobject_get(ID);
+
+        if(cobj) is_cobject = 1;
+    }
+    assert(rpc_struct_set(reply,"is_cobject",is_cobject) == 0);
+
+    return 0;
+}
 
 static int get_cobject(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     char* cobj_name = NULL;
@@ -292,9 +306,7 @@ static int call(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply){
     char* fn_name = NULL;
     rpc_struct_t fn_params = NULL;
 
-    if(rpc_struct_get(request, "object",cobj_name) != 0) return 1;
-    if(rpc_struct_get(request, "function",fn_name) != 0) return 1;
-    if(rpc_struct_get(request, "params",fn_params) != 0) return 1;
+    if(rpc_struct_get(request, "object",cobj_name) || rpc_struct_get(request, "function",fn_name) || rpc_struct_get(request, "params",fn_params)) return 1;
 
     rpc_lobjects_load(lobjects);
     enum rpc_server_errors err = rpc_cobject_call(rpc_cobject_get(cobj_name), fn_name, fn_params, reply);

@@ -32,8 +32,9 @@
 #include <ffi.h>
 #include <pthread.h>
 
-rpc_struct_t RO_cobject_bname = NULL;        //they are not static because they are exported via rpc_object_internal.h
-rpc_struct_t RO_cobject_bid = NULL;          //because i wasnt able to make a great API name for functions to get them but server need them
+static rpc_struct_t RO_cobject_bname = NULL;
+static rpc_struct_t RO_cobject_bid = NULL;
+static rpc_struct_t RO_protocache = NULL;
 
 static __thread volatile rpc_struct_t RO_lobjects = NULL; //lobjects should be loaded manualy!
 
@@ -43,6 +44,7 @@ static __thread struct sc_queue_ptr RO_object_stack;
 void rpc_object_init(){
     RO_cobject_bname = rpc_struct_create();
     RO_cobject_bid = rpc_struct_create();
+    RO_protocache = rpc_struct_create();
 }
 
 static void rpc_object_thread_init(){
@@ -73,7 +75,7 @@ static void rpc_cobject_push(rpc_struct_t cobject){
     sc_queue_add_last(&RO_object_stack, cobject);
 }
 
-static rpc_struct_t rpc_cobject_peek(){
+rpc_struct_t rpc_cobject_current(){
     rpc_object_thread_init();
     assert(sc_queue_size(&RO_object_stack) != 0);
     return sc_queue_size(&RO_object_stack) == 0 ? NULL : sc_queue_peek_first(&RO_object_stack);
@@ -88,13 +90,12 @@ rpc_struct_t rpc_lobject_get(){
     rpc_struct_t ret = NULL;
     rpc_struct_manual_lock(RO_lobjects); //dont worry, it is checks for NULL before locking, and it wouldnt cause deadlock with locking operations because it is recursive mutex underneath
     if(RO_lobjects){
-        rpc_struct_t current_cobject = rpc_cobject_peek();
+        rpc_struct_t current_cobject = rpc_cobject_current();
         if(current_cobject){
             char* c_id = rpc_struct_id_get(current_cobject);
-        _get:
-            if(rpc_struct_get(RO_lobjects, c_id, ret) != 0){
+
+            while(rpc_struct_get(RO_lobjects, c_id, ret) != 0){
                 assert(rpc_struct_set(RO_lobjects, c_id, rpc_struct_create()) == 0);
-                goto _get;
             }
         }
     }
@@ -158,13 +159,26 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
     if(!proto_equals(rpc_function_get_prototype(fn),rpc_function_get_prototype_len(fn),params)) return ERR_RPC_PROTOTYPE_DIFFERENT;
 
     ffi_cif cif;
-    ffi_type** ffi_prototype = malloc(sizeof(*ffi_prototype) * rpc_struct_length(params)); assert(ffi_prototype);
+    ffi_type** ffi_prototype = NULL;
+
 
     char el[sizeof(int) * 4]; //TODO: cache libffi prototype in obj
-    for(int i = 0; i < rpc_struct_length(params); i++){
-        sprintf(el,"%d",i);
-        ffi_prototype[i] = rpctype_to_libffi[rpc_struct_typeof(params,el)];
+
+    char cache_prototype[RPC_STRUCT_ID_SIZE + strlen(fn_name) + 16]; //should be just enough
+    sprintf(cache_prototype,"%s : %s",rpc_struct_id_get(cobj),fn_name);
+
+    rpc_struct_manual_lock(RO_protocache);
+    if(rpc_struct_get(RO_protocache,cache_prototype,ffi_prototype) != 0){
+        ffi_prototype = malloc(sizeof(*ffi_prototype) * rpc_struct_length(params)); assert(ffi_prototype);
+
+        for(int i = 0; i < rpc_struct_length(params); i++){
+            sprintf(el,"%d",i);
+            ffi_prototype[i] = rpctype_to_libffi[rpc_struct_typeof(params,el)];
+        }
+        assert(rpc_struct_set(RO_protocache,cache_prototype,ffi_prototype) == 0);
     }
+    rpc_struct_manual_unlock(RO_protocache);
+
     assert(ffi_prep_cif_var(&cif,FFI_DEFAULT_ABI,rpc_function_get_prototype_len(fn),(int)rpc_struct_length(params),rpctype_to_libffi[rpc_function_get_return_type(fn)],ffi_prototype) == 0);
     void** ffi_arguments = calloc(rpc_struct_length(params),sizeof(void*)); assert(ffi_arguments);
 

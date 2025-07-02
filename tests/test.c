@@ -1,3 +1,4 @@
+#include "ffirpc/rpc_function.h"
 #include <ffirpc/rpc_struct.h>
 #include <ffirpc/rpc_client.h>
 #include <ffirpc/rpc_server.h>
@@ -249,7 +250,7 @@ rpc_struct_t test(rpc_struct_t rpc,rpc_struct_t u){
     assert(rpc == u);
     puts("TEST FUNCTION SUCCESSFULLY INVOKED!");
     rpc_struct_set(rpc, "test_str", (char*)"gjweruiojgikouerwjgioerejgerio");
-    return rpc;
+    return rpc_cobject_current();
 }
 void obj_init(){
     rpc_struct_t new_cobj = rpc_struct_create();
@@ -304,12 +305,15 @@ int main(){
 
      rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
 
-     assert(check == debug);
 
-     assert(rpc_struct_exists(check,"test_str") == 1);
+     assert(rpc_struct_exists(check,"puts") == 1);
+     rpc_function_t nfn = NULL;
+     rpc_struct_get(check,"puts",nfn);
+     assert(rpc_function_get_fnptr(nfn) != NULL);
      assert(rpc_struct_exists(debug,"test_str") == 1);
 
      rpc_struct_free(check);
+     rpc_struct_free(debug);
 
      rpc_struct_free(cobj);
      rpc_client_free(client);

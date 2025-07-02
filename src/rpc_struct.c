@@ -46,8 +46,6 @@
 struct prec_callbacks rpc_struct_default_prec_cbs;
 char ID_alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-static struct sc_queue_ptr RSTRUCT_elreuse;
-
 struct _rpc_struct{
     HASHMAP(char,rpc_type_t) map;
     pthread_mutex_t lock;
@@ -78,11 +76,6 @@ uint64_t murmur(uint8_t* inbuf,uint32_t keylen){
 }
 
 static inline void rpc_struct_free_internal(rpc_struct_t rpc_struct);
-
-__attribute__((__constructor__))
-void rpc_struct_init(){
-    sc_queue_init(&RSTRUCT_elreuse);
-}
 
 rpc_struct_t rpc_struct_create(void){
     rpc_struct_t rpc_struct = (rpc_struct_t)malloc(sizeof(*rpc_struct));
@@ -314,8 +307,7 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
 
             hashmap_remove(&rpc_struct->map,key);
 
-            if(sc_queue_size(&RSTRUCT_elreuse) < RPC_STRUCT_MAX_REUSE_ELEMENTS) sc_queue_add_first(&RSTRUCT_elreuse,element);
-            else free(element);
+            free(element);
 
             pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
@@ -758,12 +750,8 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, rpc_type_t eleme
                 };
                 prec_increment(prec,&udat);
             }
-            rpc_type_t* set_element = (sc_queue_size(&RSTRUCT_elreuse) == 0 ?
-                                                            malloc(sizeof(element)) : sc_queue_del_first(&RSTRUCT_elreuse));
-            assert(set_element);
-            *set_element = element;
 
-            assert(hashmap_put(&rpc_struct->map,key,set_element) == 0);
+            assert(hashmap_put(&rpc_struct->map,key,copy(&element)) == 0);
             rpc_struct_manual_unlock(rpc_struct);
             return 0;
         }

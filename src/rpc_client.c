@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 
+#include "ffirpc/rpc_function.h"
 #include <ffirpc/rpc_config.h>
 #include <ffirpc/hashmap/hashmap.h>
 #include <ffirpc/rpc_client.h>
@@ -234,6 +235,27 @@ typedef struct{
 }*manual_free_info;
 
 static void closurefy(rpc_client_t client, rpc_struct_t cobj);
+
+static int is_object(rpc_client_t client, char* ID){
+    rpc_struct_t request = rpc_struct_create();
+    rpc_struct_t params = rpc_struct_create();
+
+
+    assert(rpc_struct_set(request,"method",(char*)"is_cobject") == 0);
+    assert(rpc_struct_set(request,"params",params) == 0);
+
+    assert(rpc_struct_set(params,"ID",ID) == 0);
+
+    rpc_struct_t reply = client->method_request(client,request);
+
+    int ret = 0;
+    if(reply){
+        assert(rpc_struct_get(reply,"is_cobject",ret) == 0);
+        rpc_struct_free(reply);
+    }
+    return ret;
+}
+
 static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata){
     rpc_closure_udata my_data = udata;
     pthread_mutex_lock(&my_data->lock);
@@ -427,6 +449,13 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
             }
 
             //TODO: support of returning objects from server as function's retval!
+            if(rpc_function_get_return_type(my_data->fetched_fn) == RPC_struct){
+                rpc_struct_t possible_obj = return_fill_later;
+                if(is_object(my_data->client, rpc_struct_id_get(possible_obj))){
+                    assert(arg_info == NULL); //insanity check......
+                    closurefy(my_data->client,possible_obj);
+                }
+            }
 
             *(ffi_arg*)ret = (ffi_arg)return_fill_later;
         }
@@ -518,7 +547,8 @@ rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name){
             rpc_struct_t reply_cobj = NULL;
             assert(rpc_struct_get(reply, "object",reply_cobj) == 0);
 
-            cobj = rpc_struct_deep_copy(reply_cobj); //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server! otherwise it is waste of time
+            //copying retrieved object because: 1. free on it will delete it on server 2. modifying it will modify it on server! 3. if you are running through tcp it is waste of time
+            cobj = rpc_struct_deep_copy(reply_cobj);
 
             if(rpc_struct_set(client->loaded_cobjects, rpc_struct_id_get(cobj), cobj) != 0){
                 rpc_struct_t old = NULL;
