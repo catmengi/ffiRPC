@@ -1,5 +1,32 @@
-#include "../include/ptracker.h"
-#include "../include/hashtable.h"
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+
+#include <ffirpc/hashmap/hashmap_base.h>
+#include <ffirpc/ptracker.h>
+
+#include <ffirpc/hashmap/hashmap.h>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -7,52 +34,55 @@
 #include <string.h>
 #include <stdatomic.h>
 
-static hashtable* ptracker = NULL; //should be changed to void* keyed HT to prevent convert to string!
+static HASHMAP(void, void) ptracker = {0}; //should be changed to void* keyed HT to prevent convert to string!
+static int PT_inited = 0;
 
 struct _prec{
     void* ptr;
+
     void* context;
 
     struct prec_callbacks cbs;
     atomic_int refcount;
 };
 
-prec_t prec_get(void* ptr){
-    if(ptracker == NULL){ //not inited yet
-        ptracker = hashtable_create();
-        return NULL; //because it is newly inited and does not have any data
+size_t ptracker_hash_ptr(const void* key){
+    return hashmap_hash_default(&key,sizeof(&key));
+}
+int ptracker_ptr_cmp(const void* k1, const void* k2){
+    return k1 != k2;
+}
+static void ptracker_init(){
+    if(PT_inited == 0){
+        hashmap_init(&ptracker,ptracker_hash_ptr,ptracker_ptr_cmp);
+        PT_inited = 1;
     }
-    char acc[sizeof(void*) * 4];
-    sprintf(acc,"%p",ptr);
-
-    return hashtable_get(ptracker,acc);
+}
+prec_t prec_get(void* ptr){
+    ptracker_init();
+    return hashmap_get(&ptracker, ptr);
 }
 
 prec_t prec_new(void* ptr, struct prec_callbacks cbs){
-    if(ptracker == NULL) ptracker = hashtable_create();
-    assert(prec_get(ptr) == NULL);
+    ptracker_init();
 
-    prec_t new = malloc(sizeof(*new)); assert(new);
-    new->ptr = ptr;
-    new->refcount = 0; //always increment after new!
-    new->context = NULL;
-    new->cbs = cbs;
+    prec_t new = prec_get(ptr);
+    if(new == NULL){
+        new = malloc(sizeof(*new)); assert(new);
+        new->ptr = ptr;
+        new->refcount = 0; //always increment after new!
+        new->context = NULL;
+        new->cbs = cbs;
 
-    char acc[sizeof(void*) * 4];
-    sprintf(acc,"%p",ptr);
-    hashtable_set(ptracker,strdup(acc),new);
-
+        assert(hashmap_insert(&ptracker,ptr,new,NULL) == 1);
+    }
     return new;
 }
 
 //force deletion
 void prec_delete(prec_t prec){
     if(prec){
-        char acc[sizeof(void*) * 4];
-        sprintf(acc,"%p",prec->ptr);
-        char* kfree = ptracker->body[hashtable_find_slot(ptracker,acc)].key;
-        hashtable_remove(ptracker,acc);
-        free(kfree);
+        hashmap_remove(&ptracker, prec->ptr);
 
         if(prec->cbs.zero) prec->cbs.zero(prec);
         free(prec);
@@ -86,12 +116,4 @@ void prec_context_set(prec_t prec, void* context){
 }
 void* prec_ptr(prec_t prec){
     return (prec != NULL ? prec->ptr : NULL);
-}
-
-prec_t* prec_get_all(size_t* size_out){
-    assert(size_out);
-    if(ptracker){
-        *size_out = ptracker->size;
-        return (prec_t*)hashtable_get_values(ptracker);
-    }else {*size_out = 0; return NULL;}
 }

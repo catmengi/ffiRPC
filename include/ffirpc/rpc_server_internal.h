@@ -23,16 +23,8 @@
 
 
 
-#include "rpc_thread_context.h"
-#include "rpc_struct.h"
 
-enum rpc_server_errors{
-    ERR_RPC_OK,
-    ERR_RPC_PROTOTYPE_DIFFERENT,
-    ERR_RPC_VARIADIC_NOT_ALLOWED,
-    ERR_RPC_DOESNT_EXIST,
-};
+#pragma once
 
-#ifdef RPC_INIT
-void rpc_server_init(); //server init for loader
-#endif
+#include <ffirpc/rpc_struct.h>
+int rpc_server_localnet_job(rpc_struct_t person, rpc_struct_t request, rpc_struct_t reply);

@@ -22,21 +22,19 @@
 
 
 
-#pragma  once
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <jansson.h>
+#pragma once
+#include <ffirpc/rpc_struct.h>
 
-typedef struct _rpc_sizedbuf *rpc_sizedbuf_t;
+typedef struct _rpc_client* rpc_client_t;
 
-rpc_sizedbuf_t rpc_sizedbuf_create(char* buf, size_t length); //creates a new sizedbuf, "buf" will be copyed and returned via rpc_sizedbuf_getbuf in future. "length" is length of buf
+enum rpc_client_errors{
+    ERR_RPC_DISCONNECT,
+    ERR_RPC_CALL_FAIL,
+};
 
-char* rpc_sizedbuf_getbuf(rpc_sizedbuf_t szbuf, size_t* out_length); //return copyed "buf" from rpc_sizedbuf_create, in out_length will be placed its length
-
-void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf); //free sizedbuf and copyed "buf"
-
-uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf); //return a hash of szbuf
-
-json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf);
-rpc_sizedbuf_t rpc_sizedbuf_unserialise(json_t* json);
+rpc_client_t rpc_client_create();
+void rpc_client_free(rpc_client_t client);
+void rpc_client_connect_local(rpc_client_t client);
+int rpc_client_connect_tcp(rpc_client_t client, char* host);
+rpc_struct_t rpc_client_cobject_get(rpc_client_t client, char* cobj_name);

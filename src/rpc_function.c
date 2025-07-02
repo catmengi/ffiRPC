@@ -1,10 +1,40 @@
-#include "../include/rpc_function.h"
-#include "../include/rpc_struct.h"
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+
+
+#include <ffirpc/rpc_function.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_config.h>
 
 #include <assert.h>
-#include <jansson.h>
 #include <stdint.h>
 #include <time.h>
+
+#ifdef RPC_SERIALISERS
+#include <jansson.h>
+#endif
+
 
 struct _rpc_function{
     enum rpc_types* prototype;
@@ -19,15 +49,38 @@ rpc_function_t rpc_function_create(){
     return fn;
 }
 
-void rpc_function_free(rpc_function_t fn){
+INTERNAL_API size_t rpc_function_memsize(){
+    return sizeof(struct _rpc_function);
+}
+
+void rpc_function_free_internals(rpc_function_t fn){
     if(fn){
         free(fn->prototype);
-        free(fn);
+    }
+}
+void rpc_function_free(rpc_function_t fn){
+    if(fn){
+        prec_t prec = prec_get(fn);
+        if(prec) {prec_delete(prec);}
+        else{
+            rpc_function_free_internals(fn);
+            free(fn);
+        }
     }
 }
 
+rpc_function_t rpc_function_copy(rpc_function_t fn){
+    rpc_function_t new = rpc_function_create();
+
+    rpc_function_set_fnptr(new,rpc_function_get_fnptr(fn));
+    rpc_function_set_return_type(new,rpc_function_get_return_type(fn));
+    rpc_function_set_prototype(new,rpc_function_get_prototype(fn),rpc_function_get_prototype_len(fn));
+
+    return new;
+}
+
 #define STRINGIFY(x) #x
-json_t* rpc_function_serialise(rpc_function_t fn){
+json_t* rpc_function_serialize(rpc_function_t fn){
     json_t* root = json_object(); assert(root);
 
     json_object_set_new(root,"type",json_string(STRINGIFY(RPC_function)));
@@ -38,13 +91,13 @@ json_t* rpc_function_serialise(rpc_function_t fn){
         json_object_set_new(root,"prototype",array);
 
         for(int i = 0; i < fn->prototype_len; i++){
-            json_array_set_new(array,i,json_integer(fn->prototype[i]));
+            json_array_append_new(array,json_integer(fn->prototype[i]));
         }
     }
 
     return root;
 }
-rpc_function_t rpc_function_unserialise(json_t* json){
+rpc_function_t rpc_function_deserialize(json_t* json){
     rpc_function_t fn = rpc_function_create();
     rpc_function_set_fnptr(fn,NULL);
 

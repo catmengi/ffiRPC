@@ -1,17 +1,45 @@
-#include "../include/rpc_init.h"
-#include "../include/rpc_struct.h"
+// MIT License
+//
+// Copyright (c) 2025 Catmengi
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
-#include "../include/rpc_thread_context.h"
-#include "../include/rpc_server.h"
+
+
+
+#include <ffirpc/rpc_init.h>
+#include <ffirpc/rpc_struct.h>
+
+#include <ffirpc/rpc_thread_context.h>
+#include <ffirpc/rpc_server.h>
+#include <ffirpc/rpc_object.h>
 
 #include <assert.h>
 #include <sys/types.h>
 #include <stdlib.h>
 
+#include <signal.h>
+
 #define init_log(fmt, ...) printf(fmt, __VA_ARGS__);
 
 void rpc_service_add(rpc_struct_t load,rpc_service_t service){
-    if(rpc_struct_exist(load,service.name) == 0){
+    if(rpc_struct_exists(load,service.name) == 0){
         rpc_struct_t new = rpc_struct_create();
 
         assert(rpc_struct_set(new,"init_handler",service.init_handler) == 0);
@@ -24,7 +52,7 @@ void rpc_service_add(rpc_struct_t load,rpc_service_t service){
                 sprintf(int_key,"%d",i);
 
                 rpc_struct_t after_which = NULL;
-                assert(rpc_struct_exist(load,service.dependecies[i]));
+                assert(rpc_struct_exists(load,service.dependecies[i]));
 
                 rpc_struct_set(dependencies,service.dependecies[i],0);
             }
@@ -62,7 +90,8 @@ void rpc_service_load(rpc_struct_t load,char* service_name){
 
 void rpc_service_load_all(rpc_struct_t load){
     char** keys = rpc_struct_keys(load);
-    for(size_t i = 0; i < rpc_struct_length(load); i++){
+    size_t services = rpc_struct_length(load);
+    for(size_t i = 0; i < services; i++){
         rpc_service_load(load,keys[i]);
     }
     free(keys);
@@ -70,14 +99,15 @@ void rpc_service_load_all(rpc_struct_t load){
 
 //========== RPC_init ==========
 
-static char* rpc_server_dependecies[] = {"rpc_thread_context"};
+static char* rpc_server_dependecies[] = {"rpc_object"};
 
 static rpc_service_t init_rpc_modules[] = {
-    {.name = "rpc_thread_context", .dependecies = NULL, .dependecies_len = 0, .init_handler = rpc_init_thread_context},
+    {.name = "rpc_object", .dependecies = NULL, .dependecies_len = 0, .init_handler = rpc_object_init},
     {.name = "rpc_server", .dependecies = rpc_server_dependecies, .dependecies_len = sizeof(rpc_server_dependecies) / sizeof(rpc_server_dependecies[0]), .init_handler = rpc_server_init},
 };
 
 void rpc_init(){
+    signal(SIGPIPE, SIG_IGN);
     rpc_struct_t load = rpc_struct_create();
 
     rpc_service_add_packet(load,init_rpc_modules,sizeof(init_rpc_modules) / sizeof(init_rpc_modules[0]));

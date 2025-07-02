@@ -22,13 +22,18 @@
 
 
 
-#include "../include/rpc_sizedbuf.h"
-#include "../include/hashtable.h"
+#include <ffirpc/rpc_sizedbuf.h>
+#include <ffirpc/ptracker.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_config.h>
 
 #include <assert.h>
-#include <jansson.h>
 #include <string.h>
 #include <stdint.h>
+
+#ifdef RPC_SERIALISERS
+#include <jansson.h>
+#endif
 
 struct _rpc_sizedbuf{
     char* buf;
@@ -45,22 +50,39 @@ rpc_sizedbuf_t rpc_sizedbuf_create(char* buf, size_t length){
     return szbuf;
 }
 
+rpc_sizedbuf_t rpc_sizedbuf_copy(rpc_sizedbuf_t szbuf){
+    size_t len = 0;
+    return rpc_sizedbuf_create(rpc_sizedbuf_getbuf(szbuf,&len),len);
+}
+
+INTERNAL_API size_t rpc_sizedbuf_memsize(){
+    return sizeof(struct _rpc_sizedbuf);
+}
+
 char* rpc_sizedbuf_getbuf(rpc_sizedbuf_t szbuf, size_t* out_length){
     assert(szbuf); assert(out_length);
 
     *out_length = szbuf->length;
     return szbuf->buf;
 }
-
-void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
+void rpc_sizedbuf_free_internals(rpc_sizedbuf_t szbuf){
     if(szbuf){
         free(szbuf->buf);
-        free(szbuf);
+    }
+}
+void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
+    if(szbuf){
+        prec_t prec = prec_get(szbuf);
+        if(prec) {prec_delete(prec);}
+        else{
+            rpc_sizedbuf_free_internals(szbuf);
+            free(szbuf);
+        }
     }
 }
 
 #define STRINGIFY(x) #x
-json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf){
+json_t* rpc_sizedbuf_serialize(rpc_sizedbuf_t szbuf){
     json_t* root = json_object(); assert(root);
 
     json_object_set_new(root,"type",json_string(STRINGIFY(RPC_sizedbuf)));
@@ -75,7 +97,7 @@ json_t* rpc_sizedbuf_serialise(rpc_sizedbuf_t szbuf){
     return root;
 }
 
-rpc_sizedbuf_t rpc_sizedbuf_unserialise(json_t* json){
+rpc_sizedbuf_t rpc_sizedbuf_deserialize(json_t* json){
     rpc_sizedbuf_t szbuf = malloc(sizeof(*szbuf)); assert(szbuf);
     json_t* type = json_object_get(json,"type");
 

@@ -1,11 +1,11 @@
-#include "../include/rpc_struct.h"
-#include "../include/rpc_server.h"
-#include "../include/rpc_init.h"
-#include "../include/ptracker.h"
-#include "../include/rpc_protocol.h"
+#include "ffirpc/rpc_function.h"
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_client.h>
+#include <ffirpc/rpc_server.h>
+#include <ffirpc/rpc_init.h>
+#include <ffirpc/rpc_object.h>
 
 #include <assert.h>
-#include <math.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,27 +20,15 @@ void check_rpc_struct_onfree_remove(){
 
     rpc_struct_free(c);
 
-    assert(rpc_struct_exist(t,"!c") == 0);
+    assert(rpc_struct_exists(t,"!c") == 0);
+    rpc_struct_t check = NULL;
+    assert(rpc_struct_get(t, "!c", check) != 0);
+    assert(check == NULL);
+
     rpc_struct_free(t);
 }
-
+#ifdef RPC_SERIALISERS
 void check_rpc_struct_ids(){
-    // rpc_struct_t s = rpc_struct_create();
-    //
-    // char* IDo = rpc_struct_id_get(s);
-    //
-    // size_t u = 0;
-    // char* buf = rpc_struct_serialise(s, &u);
-    //
-    // rpc_struct_t n = rpc_struct_unserialise(buf); free(buf);
-    //
-    // assert(strcmp(IDo, rpc_struct_id_get(n)) == 0);
-    //
-    // puts(rpc_struct_id_get(s));
-    // puts(rpc_struct_id_get(n));
-    //
-    // rpc_struct_free(s);
-    // rpc_struct_free(n);
     rpc_struct_t ts = rpc_struct_create();
 
     rpc_struct_set(ts, "int", (int64_t)1488);
@@ -70,11 +58,11 @@ void check_rpc_struct_ids(){
     rpc_struct_set(ts,"fn",fn);
 
 
-    json_t* test = rpc_struct_serialise(ts);
+    json_t* test = rpc_struct_serialize(ts);
     char* str = json_dumps(test,JSON_INDENT(1));
     puts(str);
 
-    rpc_struct_t new = rpc_struct_unserialise(test);
+    rpc_struct_t new = rpc_struct_deserialize(test);
     char** keys = rpc_struct_keys(new);
 
     for(int i = 0; i <rpc_struct_length(new); i++){
@@ -100,13 +88,16 @@ void check_rpc_struct_ids(){
     rpc_struct_free(new);
     rpc_struct_free(ts);
     free(str);
+
+    json_decref(test);
 }
+#endif
 
 void check_copy_of(){
     rpc_struct_t o = rpc_struct_create();
     rpc_struct_t c = rpc_struct_copy(o);
 
-    assert(rpc_struct_whoose_copy(c) == NULL); //non trackable object
+    assert(rpc_struct_whose_copy(c) == NULL); //non trackable object
 
     rpc_struct_free(o);
     rpc_struct_free(c);
@@ -117,19 +108,19 @@ void check_copy_of(){
     rpc_struct_set(t,"0",to);
 
     rpc_struct_t tc = rpc_struct_copy(to);
-    assert(rpc_struct_whoose_copy(tc));
+    assert(rpc_struct_whose_copy(tc));
 
     rpc_struct_free(to); //addition test;
     rpc_struct_free(t);
     rpc_struct_free(tc);
 }
-
+#ifdef RPC_SERIALISERS
 void szbuf_test(){
     rpc_struct_t s = rpc_struct_create();
 
     rpc_struct_set(s, "szbuf", rpc_sizedbuf_create("TEST!",sizeof("TEST!")));
 
-    json_t* ser = rpc_struct_serialise(s);
+    json_t* ser = rpc_struct_serialize(s);
     rpc_struct_free(s);
 
     puts("==============================================");
@@ -137,7 +128,7 @@ void szbuf_test(){
     puts(str);
     free(str);
 
-    rpc_struct_t unser = rpc_struct_unserialise(ser);
+    rpc_struct_t unser = rpc_struct_deserialize(ser);
 
     rpc_sizedbuf_t szbuf = NULL;
     assert(rpc_struct_get(unser,"szbuf",szbuf) == 0);
@@ -145,13 +136,190 @@ void szbuf_test(){
     size_t u = 0;
     assert(strcmp(rpc_sizedbuf_getbuf(szbuf,&u),"TEST!") == 0);
     rpc_struct_free(unser);
+
+    json_decref(ser);
+}
+#endif
+
+void basic_free_test(){
+    rpc_struct_t cont = rpc_struct_create();
+    rpc_struct_t add = rpc_struct_create();
+
+    char k[sizeof(int) + 8];
+    for(int i = 0; i < 256; i++){
+        sprintf(k,"%d",i);
+        rpc_struct_set(cont,k,add);
+    }
+
+    assert(rpc_struct_length(cont) == 256);
+
+    rpc_struct_free(add);
+    assert(rpc_struct_length(cont) == 0);
+    rpc_struct_free(cont);
+}
+
+void adv_free_test(){
+    rpc_struct_t cont = rpc_struct_create();
+
+    rpc_struct_t add[16] = {NULL};
+    int per_add = 256;
+
+    char k[(sizeof(int) * 2) * 2];
+    for(int i = 0; i < sizeof(add) / sizeof(*add); i++){
+        add[i] = rpc_struct_create();
+
+        for(int j = 0; j < per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            rpc_struct_set(cont, k, add[i]);
+        }
+    }
+
+    for(int i = (sizeof(add) / sizeof(*add)) - 1; i >= 0 ; i--){
+        rpc_struct_free(add[i]);
+        printf("%s :: %zu == %d\n", __PRETTY_FUNCTION__, rpc_struct_length(cont), per_add * i);
+        fflush(stdout);
+        assert(rpc_struct_length(cont) == per_add * i);
+
+        for(int j = 0; j <per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            assert(rpc_struct_exists(cont,k) == 0);
+        }
+    }
+    rpc_struct_free(cont);
+}
+void adv_free_test_fn(){
+    rpc_struct_t cont = rpc_struct_create();
+
+    rpc_function_t add[16] = {NULL};
+    int per_add = 256;
+
+    char k[(sizeof(int) * 2) * 2];
+    for(int i = 0; i < sizeof(add) / sizeof(*add); i++){
+        add[i] = rpc_function_create();
+
+        for(int j = 0; j < per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            rpc_struct_set(cont, k, add[i]);
+        }
+    }
+
+    for(int i = (sizeof(add) / sizeof(*add)) - 1; i >= 0 ; i--){
+        rpc_function_free(add[i]);
+        printf("%s :: %zu == %d\n", __PRETTY_FUNCTION__, rpc_struct_length(cont), per_add * i);
+        fflush(stdout);
+        assert(rpc_struct_length(cont) == per_add * i);
+
+        for(int j = 0; j <per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            assert(rpc_struct_exists(cont,k) == 0);
+        }
+    }
+    rpc_struct_free(cont);
+}
+void adv_free_test_sz(){
+    rpc_struct_t cont = rpc_struct_create();
+
+    rpc_sizedbuf_t add[16] = {NULL};
+    int per_add = 256;
+
+    char k[(sizeof(int) * 2) * 2];
+    for(int i = 0; i < sizeof(add) / sizeof(*add); i++){
+        add[i] = rpc_sizedbuf_create("123",4);
+
+        for(int j = 0; j < per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            rpc_struct_set(cont, k, add[i]);
+        }
+    }
+
+    for(int i = (sizeof(add) / sizeof(*add)) - 1; i >= 0 ; i--){
+        rpc_sizedbuf_free(add[i]);
+        printf("%s :: %zu == %d\n", __PRETTY_FUNCTION__, rpc_struct_length(cont), per_add * i);
+        fflush(stdout);
+        assert(rpc_struct_length(cont) == per_add * i);
+
+        for(int j = 0; j <per_add; j++){
+            sprintf(k, "%d %d",i,j);
+            assert(rpc_struct_exists(cont,k) == 0);
+        }
+    }
+    rpc_struct_free(cont);
+}
+
+rpc_struct_t test(rpc_struct_t rpc,rpc_struct_t u){
+    assert(rpc == u);
+    puts("TEST FUNCTION SUCCESSFULLY INVOKED!");
+    rpc_struct_set(rpc, "test_str", (char*)"gjweruiojgikouerwjgioerejgerio");
+    return rpc_cobject_current();
+}
+void obj_init(){
+    rpc_struct_t new_cobj = rpc_struct_create();
+
+    rpc_function_t fn = rpc_function_create();
+    rpc_function_set_return_type(fn,RPC_struct);
+    rpc_function_set_prototype(fn,(enum rpc_types[]){RPC_struct,RPC_struct},2);
+    rpc_function_set_fnptr(fn,test);
+
+    rpc_struct_set(new_cobj,"puts",fn);
+    rpc_cobject_set("console",new_cobj);
+
 }
 
 int main(){
     rpc_init();
 
+#ifdef RPC_SERIALISERS
      check_rpc_struct_ids();
+     szbuf_test();
+#endif
+
      check_rpc_struct_onfree_remove();
      check_copy_of();
-     szbuf_test();
+     basic_free_test();
+     adv_free_test();
+     adv_free_test_fn();
+     adv_free_test_sz();
+     obj_init();
+
+#ifdef RPC_NETWORK
+     rpc_server_launch_port(2077);
+#endif
+
+     rpc_client_t client = rpc_client_create();
+
+#ifndef RPC_NETWORK
+     rpc_client_connect_local(client);
+#else
+     assert(rpc_client_connect_tcp(client,"localhost:2077") == 0);
+#endif
+
+     rpc_struct_t cobj = rpc_client_cobject_get(client,"console");
+
+     rpc_function_t fn = NULL;
+     assert(rpc_struct_get(cobj, "puts", fn) == 0);
+
+     rpc_struct_t debug = rpc_struct_create();
+
+     rpc_struct_t refdbg = rpc_struct_create();
+     rpc_struct_set(refdbg, "dbg", debug);
+
+     rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
+
+
+     assert(rpc_struct_exists(check,"puts") == 1);
+     rpc_function_t nfn = NULL;
+     rpc_struct_get(check,"puts",nfn);
+     assert(rpc_function_get_fnptr(nfn) != NULL);
+     assert(rpc_struct_exists(debug,"test_str") == 1);
+
+     rpc_struct_free(check);
+     rpc_struct_free(debug);
+
+     rpc_struct_free(cobj);
+     rpc_client_free(client);
+     rpc_struct_free(refdbg);
+
+#ifdef RPC_NETWORK
+     rpc_server_stop_port(2077);
+#endif
 }

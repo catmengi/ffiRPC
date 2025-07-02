@@ -21,14 +21,22 @@
 // SOFTWARE.
 
 
+#pragma once
 
-#include <pthread.h>
-#include <stdio.h>
+#include <ffirpc/rpc_thread_context.h>
+#include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_object.h>
 
-#include "rpc_struct.h"
+enum rpc_server_errors{
+    ERR_RPC_OK,
+    ERR_RPC_PROTOTYPE_DIFFERENT,
+    ERR_RPC_VARIADIC_NOT_ALLOWED,
+    ERR_RPC_DOESNT_EXIST,
+};
 
-void rpc_init_thread_context();
-void rpc_deinit_thread_context();
+#ifdef RPC_INIT
+void rpc_server_init(); //server init for loader
+#endif
 
-rpc_struct_t rpc_thread_context_set(rpc_struct_t rpc_struct); //sets rpc_struct for thread
-rpc_struct_t rpc_thread_context_get(); //return rpc_struct for this thread. RETURN: NULL if doesnt exist
+int rpc_server_launch_port(short port);
+int rpc_server_stop_port(short port);

@@ -42,7 +42,7 @@
 #define SC_QUEUE_VERSION "2.0.0"
 
 #ifdef SC_HAVE_CONFIG_H
-#include "config.h"
+#include <ffirpc/config.h>
 #else
 #define sc_queue_calloc calloc
 #define sc_queue_free free
@@ -53,76 +53,76 @@
 #endif
 
 #define sc_queue_def(T, name)                                                  \
-	struct sc_queue_##name {                                               \
-		bool oom;                                                      \
-		size_t cap;                                                    \
-		size_t first;                                                  \
-		size_t last;                                                   \
-		/* NOLINTNEXTLINE */                                           \
-		T *elems;                                                      \
-	}
+struct sc_queue_##name {                                               \
+	bool oom;                                                      \
+	size_t cap;                                                    \
+	size_t first;                                                  \
+	size_t last;                                                   \
+	/* NOLINTNEXTLINE */                                           \
+	T *elems;                                                      \
+}
 
 #define sc_queue_expand(q)                                                     \
-	do {                                                                   \
-		size_t _cap, _len, _off;                                       \
-		size_t _pos = ((q)->last + 1) & ((q)->cap - 1);                \
-		void *_dst, *_src;                                             \
-                                                                               \
-		if (_pos == (q)->first) {                                      \
-			if ((q)->cap > SC_QUEUE_MAX / 2ul) {                   \
-				(q)->oom = true;                               \
-				break;                                         \
-			}                                                      \
-			_cap = (q)->cap * 2;                                   \
-			_dst = sc_queue_calloc(_cap, sizeof(*((q)->elems)));   \
-			if (_dst == NULL) {                                    \
-				(q)->oom = true;                               \
-				break;                                         \
-			}                                                      \
-			_len = ((q)->cap - (q)->first) * sizeof(*(q)->elems);  \
-			_off = ((q)->first * sizeof(*((q)->elems)));           \
-			_src = ((char *) (q)->elems) + _off;                   \
-                                                                               \
-			memcpy(_dst, _src, _len);                              \
-			memcpy(((char *) _dst) + _len, (q)->elems, _off);      \
-			(q)->oom = false;                                      \
-			(q)->last = (q)->cap - 1;                              \
-			(q)->first = 0;                                        \
-			(q)->cap = _cap;                                       \
-			sc_queue_free((q)->elems);                             \
-			(q)->elems = _dst;                                     \
-		}                                                              \
-	} while (0)
+do {                                                                   \
+	size_t _cap, _len, _off;                                       \
+	size_t _pos = ((q)->last + 1) & ((q)->cap - 1);                \
+	void *_dst, *_src;                                             \
+	\
+	if (_pos == (q)->first) {                                      \
+		if ((q)->cap > SC_QUEUE_MAX / 2ul) {                   \
+			(q)->oom = true;                               \
+			break;                                         \
+		}                                                      \
+		_cap = (q)->cap * 2;                                   \
+		_dst = sc_queue_calloc(_cap, sizeof(*((q)->elems)));   \
+		if (_dst == NULL) {                                    \
+			(q)->oom = true;                               \
+			break;                                         \
+		}                                                      \
+		_len = ((q)->cap - (q)->first) * sizeof(*(q)->elems);  \
+		_off = ((q)->first * sizeof(*((q)->elems)));           \
+		_src = ((char *) (q)->elems) + _off;                   \
+		\
+		memcpy(_dst, _src, _len);                              \
+		memcpy(((char *) _dst) + _len, (q)->elems, _off);      \
+		(q)->oom = false;                                      \
+		(q)->last = (q)->cap - 1;                              \
+		(q)->first = 0;                                        \
+		(q)->cap = _cap;                                       \
+		sc_queue_free((q)->elems);                             \
+		(q)->elems = _dst;                                     \
+	}                                                              \
+} while (0)
 
 /**
  *   Init queue. Call sc_queue_oom(q) to see if memory allocation succeeded.
  *   @param q queue
  */
 #define sc_queue_init(q)                                                       \
-	do {                                                                   \
-		(q)->oom = false;                                              \
-		(q)->cap = 8;                                                  \
-		(q)->first = 0;                                                \
-		(q)->last = 0;                                                 \
-		(q)->elems = sc_queue_calloc(1, sizeof(*(q)->elems) * 8);      \
-		if ((q)->elems == NULL) {                                      \
-			(q)->oom = true;                                       \
-		}                                                              \
-	} while (0)
+do {                                                                   \
+	(q)->oom = false;                                              \
+	(q)->cap = 8;                                                  \
+	(q)->first = 0;                                                \
+	(q)->last = 0;                                                 \
+	(q)->elems = sc_queue_calloc(1, sizeof(*(q)->elems) * 8);      \
+	if ((q)->elems == NULL) {                                      \
+		(q)->oom = true;                                       \
+	}                                                              \
+} while (0)
 
 /**
  *   Destroy queue
  *   @param q queue
  */
 #define sc_queue_term(q)                                                       \
-	do {                                                                   \
-		sc_queue_free((q)->elems);                                     \
-		(q)->elems = NULL;                                             \
-		(q)->cap = 0;                                                  \
-		(q)->first = 0;                                                \
-		(q)->last = 0;                                                 \
-		(q)->oom = false;                                              \
-	} while (0)
+do {                                                                   \
+	sc_queue_free((q)->elems);                                     \
+	(q)->elems = NULL;                                             \
+	(q)->cap = 0;                                                  \
+	(q)->first = 0;                                                \
+	(q)->last = 0;                                                 \
+	(q)->oom = false;                                              \
+} while (0)
 
 /**
  * @param q queue
@@ -141,11 +141,11 @@
  * @param q queue
  */
 #define sc_queue_clear(q)                                                      \
-	do {                                                                   \
-		(q)->first = 0;                                                \
-		(q)->last = 0;                                                 \
-		(q)->oom = false;                                              \
-	} while (0)
+do {                                                                   \
+	(q)->first = 0;                                                \
+	(q)->last = 0;                                                 \
+	(q)->oom = false;                                              \
+} while (0)
 
 /**
  *   @param q queue
@@ -204,15 +204,15 @@
  * @param elem elem to be added at the end of the list
  */
 #define sc_queue_add_last(q, elem)                                             \
-	do {                                                                   \
-		sc_queue_expand(q);                                            \
-		if ((q)->oom) {                                                \
-			break;                                                 \
-		}                                                              \
-		(q)->oom = false;                                              \
-		(q)->elems[(q)->last] = elem;                                  \
-		(q)->last = ((q)->last + 1) & ((q)->cap - 1);                  \
-	} while (0)
+do {                                                                   \
+	sc_queue_expand(q);                                            \
+	if ((q)->oom) {                                                \
+		break;                                                 \
+	}                                                              \
+	(q)->oom = false;                                              \
+	(q)->elems[(q)->last] = elem;                                  \
+	(q)->last = ((q)->last + 1) & ((q)->cap - 1);                  \
+} while (0)
 
 /**
  * @param q queue
@@ -220,7 +220,7 @@
  *          If queue is empty, result is undefined.
  */
 #define sc_queue_del_last(q)                                                   \
-	((q)->elems[((q)->last = ((q)->last - 1) & ((q)->cap - 1))])
+((q)->elems[((q)->last = ((q)->last - 1) & ((q)->cap - 1))])
 
 /**
  * Call sc_queue_oom(q) after this function to check out of memory condition.
@@ -229,15 +229,15 @@
  * @param elem elem to be added at the head of the list.
  */
 #define sc_queue_add_first(q, elem)                                            \
-	do {                                                                   \
-		sc_queue_expand(q);                                            \
-		if ((q)->oom) {                                                \
-			break;                                                 \
-		}                                                              \
-		(q)->oom = false;                                              \
-		(q)->first = ((q)->first - 1) & ((q)->cap - 1);                \
-		(q)->elems[(q)->first] = elem;                                 \
-	} while (0)
+do {                                                                   \
+	sc_queue_expand(q);                                            \
+	if ((q)->oom) {                                                \
+		break;                                                 \
+	}                                                              \
+	(q)->oom = false;                                              \
+	(q)->first = ((q)->first - 1) & ((q)->cap - 1);                \
+	(q)->elems[(q)->first] = elem;                                 \
+} while (0)
 
 static inline size_t sc_queue_inc_first(size_t *first, size_t cap)
 {
@@ -253,7 +253,7 @@ static inline size_t sc_queue_inc_first(size_t *first, size_t cap)
  *          If queue is empty, result is undefined.
  */
 #define sc_queue_del_first(q)                                                  \
-	(q)->elems[sc_queue_inc_first(&(q)->first, (q)->cap)]
+(q)->elems[sc_queue_inc_first(&(q)->first, (q)->cap)]
 
 /**
  *  For each loop,
@@ -267,14 +267,14 @@ static inline size_t sc_queue_inc_first(size_t *first, size_t cap)
  *  }
  */
 #define sc_queue_foreach(q, elem)                                              \
-	for (size_t _k = 1, _i = sc_queue_first(q);                            \
-	     _k && _i != sc_queue_last(q);                                     \
-	     _k = !_k, _i = sc_queue_next(q, _i))                              \
-		for ((elem) = (q)->elems[_i]; _k; _k = !_k)
+for (size_t _k = 1, _i = sc_queue_first(q);                            \
+	_k && _i != sc_queue_last(q);                                     \
+	_k = !_k, _i = sc_queue_next(q, _i))                              \
+	for ((elem) = (q)->elems[_i]; _k; _k = !_k)
 
-//        (type, name)
-sc_queue_def(int, int);
-sc_queue_def(unsigned int, uint);
+		//        (type, name)
+		sc_queue_def(int, int);
+	sc_queue_def(unsigned int, uint);
 sc_queue_def(long, long);
 sc_queue_def(long long, ll);
 sc_queue_def(unsigned long, ulong);

@@ -32,12 +32,11 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #include <sys/resource.h>
 
-#include "../include/poll_network.h"
-
-#define TIMEOUT 5
+#include <ffirpc/poll_network.h>
 
 struct poll_net{
     int active;
@@ -68,12 +67,13 @@ static void* accept_thread(void* paramP){
         timeout.tv_sec = TIMEOUT;
         timeout.tv_usec = 0;
 
-        assert(setsockopt(netfd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) == 0);
-        assert(setsockopt(netfd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout)) == 0);
+        if(setsockopt(netfd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) != 0) continue;
+        if(setsockopt(netfd,SOL_SOCKET,SO_SNDTIMEO,&timeout,sizeof(timeout)) != 0) continue;
 
         poll_net_add_fd(net,netfd);
 
         if(net->callbacks.accept_cb) net->callbacks.accept_cb(netfd,net->callback_ctx);
+
     }
     return NULL;
 }
@@ -82,7 +82,8 @@ static void* poll_thread(void* paramP){
     poll_net_t net = paramP;
 
     while(net->active){
-        int scan = poll(net->fds,net->nfds,15);
+        int scan = poll(net->fds,net->nfds,0);
+
         assert(scan >= 0);
         if(scan > 0){
             for(nfds_t i = 0; i < net->nfds; i++){
@@ -166,6 +167,7 @@ void poll_net_free(poll_net_t net){
     pthread_join(net->poll_thread,NULL);
 
     for(nfds_t i = 0; i < net->nfds; i++){
+        net->callbacks.disconnect_cb(net->fds[i].fd, net->callback_ctx);
         shutdown(net->fds[i].fd,SHUT_RDWR);
         close(net->fds[i].fd);
     }

@@ -19,3 +19,21 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
+
+
+#pragma once
+
+#include <ffirpc/rpc_struct.h>
+
+#ifdef RPC_INIT
+void rpc_object_init();
+#endif
+
+rpc_struct_t rpc_lobject_get();
+
+int rpc_cobject_set(char* cobj_name, rpc_struct_t cobj);
+rpc_struct_t rpc_cobject_get(char* cobj_name);
+rpc_struct_t rpc_cobject_current(); //NULL if no object
+int rpc_cobject_remove(char* cobj_name); //SHOULD NEVER BE CALLED FROM RPC_FUNCTION!
+
+int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_struct_t output);
