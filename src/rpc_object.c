@@ -224,8 +224,6 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
     ffi_call(&cif,rpc_function_get_fnptr(fn),&ffi_return,ffi_arguments);
     rpc_cobject_pop();
 
-    free(ffi_prototype);
-
     for(int i = 0; i < (int)rpc_struct_length(params); i++)
         free(ffi_arguments[i]);
     free(ffi_arguments);
