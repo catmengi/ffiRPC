@@ -21,7 +21,8 @@
 // SOFTWARE.
 
 
-#include "ffirpc/rpc_function.h"
+#include "ffirpc/rpc_struct_internal.h"
+#include <ffirpc/rpc_function.h>
 #include <ffirpc/rpc_config.h>
 #include <ffirpc/hashmap/hashmap.h>
 #include <ffirpc/rpc_client.h>
@@ -451,9 +452,16 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
             //TODO: support of returning objects from server as function's retval!
             if(rpc_function_get_return_type(my_data->fetched_fn) == RPC_struct){
                 rpc_struct_t possible_obj = return_fill_later;
-                if(is_object(my_data->client, rpc_struct_id_get(possible_obj))){
-                    assert(arg_info == NULL); //insanity check......
-                    closurefy(my_data->client,possible_obj);
+                if(rpc_struct_exists(my_data->client->loaded_cobjects,rpc_struct_id_get(possible_obj)) == 0){
+                    if(is_object(my_data->client, rpc_struct_id_get(possible_obj))){
+                        assert(arg_info == NULL); //insanity check......
+                        closurefy(my_data->client,possible_obj);
+                    }
+                } else {
+                    rpc_struct_t lcobj = NULL;
+                    assert(rpc_struct_get(my_data->client->loaded_cobjects,rpc_struct_id_get(possible_obj),lcobj) == 0);
+
+                    return_fill_later = rpc_struct_copy(lcobj);
                 }
             }
 

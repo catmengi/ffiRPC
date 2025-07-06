@@ -2,6 +2,7 @@ test
 test32
 valgrind_test
 donkey
+O3
 *.o
 *.exe
 *.dll

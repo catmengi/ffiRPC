@@ -29,6 +29,7 @@
 #include <ffirpc/rpc_function.h>
 #include <ffirpc/ptracker.h>
 #include <ffirpc/sc_queue.h>
+#include <ffirpc/memory_pool.h>
 
 #ifdef RPC_SERIALISERS
 #include <jansson.h>
@@ -82,7 +83,7 @@ rpc_struct_t rpc_struct_create(void){
     assert(rpc_struct);
 
     hashmap_init(&rpc_struct->map,hashmap_hash_string,strcmp);
-    hashmap_set_key_alloc_funcs(&rpc_struct->map,strdup,(void (*)(char*))free);
+    hashmap_set_key_alloc_funcs(&rpc_struct->map,mpool_strdup,(void (*)(char*))mpool_free);
 
     arc4random_buf(rpc_struct->ID,RPC_STRUCT_ID_SIZE - 1);
     rpc_struct->ID[RPC_STRUCT_ID_SIZE - 1] = '\0';
@@ -123,7 +124,8 @@ void rpc_struct_prec_ctx_destroy(prec_t prec){ //not static because i need this 
         prec_context_set(prec, NULL);
         pthread_mutex_unlock(&ptr_ctx->lock);
         pthread_mutex_destroy(&ptr_ctx->lock);
-        free(ptr_ctx);
+
+        mpool_free(ptr_ctx);
     }
 }
 static void rpc_struct_onzero_cb(prec_t prec){
@@ -152,10 +154,10 @@ static void rpc_struct_onzero_cb(prec_t prec){
 static rpc_struct_prec_ptr_ctx* prec_ptr_ctx_create_or_get(prec_t prec, prec_rpc_udata* udat){
     rpc_struct_prec_ptr_ctx* ptr_ctx = prec_context_get(prec);
     if(ptr_ctx == NULL){
-        ptr_ctx = malloc(sizeof(*ptr_ctx)); assert(ptr_ctx);
+        ptr_ctx = mpool_alloc(sizeof(*ptr_ctx));
 
         hashmap_init(&ptr_ctx->keys,hashmap_hash_string, strcmp);
-        hashmap_set_key_alloc_funcs(&ptr_ctx->keys,strdup,(void (*)(char*))free);
+        hashmap_set_key_alloc_funcs(&ptr_ctx->keys,mpool_strdup,(void (*)(char*))mpool_free);
         ptr_ctx->free = udat->free;
 
         pthread_mutexattr_t attr;
@@ -303,11 +305,11 @@ int rpc_struct_remove(rpc_struct_t rpc_struct, char* key){
                     .origin = rpc_struct,
                 };
                 prec_decrement(prec_get(element->data_container.ptr_value),&udat);
-            } else if(element->type == RPC_string) free(element->data_container.ptr_value);
+            } else if(element->type == RPC_string) mpool_free(element->data_container.ptr_value);
 
             hashmap_remove(&rpc_struct->map,key);
 
-            free(element);
+            mpool_free(element);
 
             pthread_mutex_unlock(&rpc_struct->lock);
             return 0;
@@ -736,7 +738,7 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, rpc_type_t eleme
     if(rpc_is_pointer(element.type) && element.data_container.ptr_value != NULL || !rpc_is_pointer(element.type)){
         if(hashmap_get(&rpc_struct->map,key) == NULL){
             if(element.type == RPC_string){
-                element.data_container.ptr_value = strdup(element.data_container.ptr_value); assert(element.data_container.ptr_value);
+                element.data_container.ptr_value = mpool_strdup(element.data_container.ptr_value);
                 element.length = strlen(element.data_container.ptr_value) + 1;
             }
             if(rpc_is_pointer(element.type) && element.type != RPC_string && element.type != RPC_unknown){
@@ -751,7 +753,10 @@ int rpc_struct_set_internal(rpc_struct_t rpc_struct, char* key, rpc_type_t eleme
                 prec_increment(prec,&udat);
             }
 
-            assert(hashmap_put(&rpc_struct->map,key,copy(&element)) == 0);
+            rpc_type_t* set = mpool_alloc(sizeof(element));
+            *set = element;
+
+            assert(hashmap_put(&rpc_struct->map,key,set) == 0);
             rpc_struct_manual_unlock(rpc_struct);
             return 0;
         }

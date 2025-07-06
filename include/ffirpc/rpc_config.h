@@ -6,3 +6,5 @@
 #ifdef RPC_NETWORK
 #define RPC_SERIALISERS
 #endif
+
+#define RPC_POOL_ALLOCATOR

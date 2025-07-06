@@ -36,6 +36,7 @@
 #include <string.h>
 
 #include <ffirpc/hashmap/hashmap_base.h>
+#include <ffirpc/memory_pool.h>
 
 /* Table sizes must be powers of 2 */
 #define HASHMAP_SIZE_MIN               32
@@ -192,7 +193,9 @@ static int hashmap_rehash(struct hashmap_base *hb, size_t table_size)
     assert((table_size & (table_size - 1)) == 0);
     assert(table_size >= hb->size);
 
-    new_table = (struct hashmap_entry *)calloc(table_size, sizeof(struct hashmap_entry));
+    new_table = (struct hashmap_entry *)malloc(table_size * sizeof(struct hashmap_entry));
+    memset(new_table,0,table_size * sizeof(struct hashmap_entry));
+
     if (!new_table) {
         return -ENOMEM;
     }
