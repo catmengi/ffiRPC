@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 
-#include "ffirpc/rpc_struct_internal.h"
+#include <ffirpc/rpc_struct_internal.h>
 #include <ffirpc/rpc_function.h>
 #include <ffirpc/rpc_config.h>
 #include <ffirpc/hashmap/hashmap.h>
@@ -226,9 +226,8 @@ static int cmp_size_t(const size_t k1, const size_t k2){
     return k1 != k2;
 }
 typedef struct{
-    int was_refcounted; //was it reference counted before we set it into arguments
-    void* closure_arg;
-}*arg_update_info;
+    int was_refcounted;
+}arg_info;
 
 typedef struct{
     void (*free_fn)(void*);
@@ -269,16 +268,14 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     rpc_struct_t call_request = rpc_struct_create();
     rpc_struct_t fn_args = rpc_struct_create();
 
-    HASHMAP(char, void) to_update;
-    hashmap_init(&to_update,hashmap_hash_string,strcmp);
-    hashmap_set_key_alloc_funcs(&to_update,strdup,(void (*)(char*))free);
-
-    HASHMAP(void, void) to_update_ptr;
-    hashmap_init(&to_update_ptr,ptracker_hash_ptr,ptracker_ptr_cmp);
+    HASHMAP(void, void) arg_info_storage;
+    hashmap_init(&arg_info_storage,ptracker_hash_ptr,ptracker_ptr_cmp);
 
     HASHMAP(void, void) updated;
     hashmap_init(&updated,ptracker_hash_ptr,ptracker_ptr_cmp);
 
+
+    arg_info infos[prototype_len];
     for(int i = 0; i < prototype_len; i++){
         assert(prototype[i] != RPC_none); //check your server bro
         char args_acc[sizeof(int) * 4];
@@ -305,14 +302,9 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                     ctx->free = NULL; //disabling reference counted free for this element if it wasnt reference counted before rpc_struct_set_internal
                 }
 
-                if(hashmap_get(&to_update_ptr,element.data_container.ptr_value) == NULL || hashmap_get(&to_update,args_acc) == NULL){
-                    arg_update_info arg_info = malloc(sizeof(*arg_info)); assert(arg_info);
-                    arg_info->was_refcounted = was_refcounted;
-                    arg_info->closure_arg = args[i];
-
-
-                    hashmap_put(&to_update, args_acc, arg_info);
-                    hashmap_put(&to_update_ptr, element.data_container.ptr_value, arg_info);
+                if(hashmap_get(&arg_info_storage,element.data_container.ptr_value) == NULL){
+                    infos[i].was_refcounted = was_refcounted;
+                    hashmap_put(&arg_info_storage, element.data_container.ptr_value, &infos[i]);
                 }
             }
             break;
@@ -346,110 +338,13 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
             }
         }
 
-        arg_update_info info = NULL;
-        const char* key = NULL;
-        hashmap_foreach(key,info,&to_update){
-            rpc_type_t element = rpc_struct_get_internal(reply,(char*)key);
-                //we should expect that not all arguments will be sent back, only thoose which hash was has changed, if you changed it and it wasnt replyed, check hash function of your type!
-                switch(element.type){
-                case RPC_string:
-                    memcpy(*(void**)info->closure_arg, element.data_container.ptr_value,
-                            strlen(element.data_container.ptr_value) > strlen(*(void**)info->closure_arg) ? strlen(*(void**)info->closure_arg) : strlen(element.data_container.ptr_value));
-                    break;
-                case RPC_struct:{
-                    if(hashmap_get(&updated, element.data_container.ptr_value) == NULL){
-                        if(*(void**)info->closure_arg != element.data_container.ptr_value) //this might happen if we running through local client!
-                            rpc_struct_free_internals(*(void**)info->closure_arg);
-
-                        memcpy(*(void**)info->closure_arg, element.data_container.ptr_value, rpc_struct_memsize());
-
-                        if(element.data_container.ptr_value == return_fill_later){
-                            prec_t rfl_prec = prec_get(return_fill_later);
-                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
-                                if(info == NULL || info->was_refcounted == 0){
-                                    rpc_struct_prec_ctx_destroy(rfl_prec);
-                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
-                                }
-                                return_fill_later = *(void**)info->closure_arg;
-                            }
-                        }
-                        prec_t ctx_del_prec = prec_get(element.data_container.ptr_value);
-                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
-                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
-                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
-                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
-                        } else if(info != NULL && info->was_refcounted == 1) {prec_increment(prec_get(element.data_container.ptr_value),NULL);}
-                        hashmap_put(&updated, element.data_container.ptr_value, (void*)1);
-                    }
-                }
-                break;
-                case RPC_sizedbuf:{
-                    if(hashmap_get(&updated, element.data_container.ptr_value) == NULL){
-                        if(*(void**)info->closure_arg != element.data_container.ptr_value) //this might happen if we running through local client!
-                            rpc_sizedbuf_free_internals(*(void**)info->closure_arg);
-
-                        memcpy(*(void**)info->closure_arg, element.data_container.ptr_value, rpc_sizedbuf_memsize());
-
-                        if(element.data_container.ptr_value == return_fill_later){
-                            prec_t rfl_prec = prec_get(return_fill_later);
-                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
-                                if(info == NULL || info->was_refcounted == 0){
-                                    rpc_struct_prec_ctx_destroy(rfl_prec);
-                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
-                                }
-                                return_fill_later = *(void**)info->closure_arg;
-                            }
-                        }
-                        prec_t ctx_del_prec = prec_get(element.data_container.ptr_value);
-                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
-                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
-                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
-                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
-                        } else if(info != NULL && info->was_refcounted == 1) prec_increment(prec_get(element.data_container.ptr_value),NULL);
-                        hashmap_put(&updated, element.data_container.ptr_value, (void*)1);
-                    }
-                }
-                break;
-                case RPC_function:{
-                    if(hashmap_get(&updated, element.data_container.ptr_value) == NULL){
-                        if(*(void**)info->closure_arg != element.data_container.ptr_value) //this might happen if we running through local client!
-                            rpc_function_free_internals(*(void**)info->closure_arg);
-
-                        memcpy(*(void**)info->closure_arg, element.data_container.ptr_value, rpc_function_memsize());
-
-                        if(element.data_container.ptr_value == return_fill_later){
-                            prec_t rfl_prec = prec_get(return_fill_later);
-                            if(rfl_prec){ //because of this check we will ensure that this code will be runned ONCE
-                                if(info == NULL || info->was_refcounted == 0){
-                                    rpc_struct_prec_ctx_destroy(rfl_prec);
-                                    prec_delete(rfl_prec); //we dont want this ctx anymore, in return_fill_later we will write pointer of this info;
-                                }
-                                return_fill_later = *(void**)info->closure_arg;
-                            }
-                        }
-                        prec_t ctx_del_prec = prec_get(element.data_container.ptr_value);
-                        if(ctx_del_prec && (info == NULL || info->was_refcounted == 0)){
-                            rpc_struct_prec_ptr_ctx* ctx = prec_context_get(ctx_del_prec); assert(ctx);
-                            ctx->free = NULL; //remove free function because we need rpc_struct's internal **organs** later
-                            prec_delete(ctx_del_prec); //also it will remove it from anywhere else.......
-                        } else if(info != NULL && info->was_refcounted == 1) prec_increment(prec_get(element.data_container.ptr_value),NULL);
-                        hashmap_put(&updated, element.data_container.ptr_value, (void*)1);
-                    }
-                }
-                break;
-
-                default: break; //do nothing, and also to shut-up clangd
-            }
-        }
-
-        if(return_fill_later){
-            arg_update_info arg_info = hashmap_get(&to_update_ptr,return_fill_later);
+        if(return_fill_later){ //if running through local mode, return CAN be SAME as one of arguments, better safe than sorry!
+            arg_info* arg_info = hashmap_get(&arg_info_storage,return_fill_later);
             if(arg_info == NULL || arg_info->was_refcounted == 0){
                 rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(return_fill_later));
                 if(ctx) ctx->free = NULL; //are you sure? Yes i am. But really, we dont want the return value to be controled by someone else.....
             }
 
-            //TODO: support of returning objects from server as function's retval!
             if(rpc_function_get_return_type(my_data->fetched_fn) == RPC_struct){
                 rpc_struct_t possible_obj = return_fill_later;
                 if(rpc_struct_exists(my_data->client->loaded_cobjects,rpc_struct_id_get(possible_obj)) == 0){
@@ -476,12 +371,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
 
     rpc_struct_free(reply);
 
-    arg_update_info free_info = NULL;
-    hashmap_foreach_data(free_info,&to_update){
-        free(free_info);
-    }
-    hashmap_cleanup(&to_update_ptr);
-    hashmap_cleanup(&to_update);
+    hashmap_cleanup(&arg_info_storage);
     hashmap_cleanup(&updated);
 
     pthread_mutex_unlock(&my_data->lock);
