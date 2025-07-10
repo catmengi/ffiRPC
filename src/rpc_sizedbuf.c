@@ -81,6 +81,7 @@ void rpc_sizedbuf_free(rpc_sizedbuf_t szbuf){
     }
 }
 
+#ifdef RPC_SERIALISERS
 #define STRINGIFY(x) #x
 json_t* rpc_sizedbuf_serialize(rpc_sizedbuf_t szbuf){
     json_t* root = json_object(); assert(root);
@@ -122,6 +123,7 @@ bad_exit:
     rpc_sizedbuf_free(szbuf);
     return NULL;
 }
+#endif
 
 uint64_t rpc_sizedbuf_hash(rpc_sizedbuf_t szbuf){
     assert(szbuf);

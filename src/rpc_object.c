@@ -130,15 +130,6 @@ ffi_type* rpctype_to_libffi[RPC_unknown + 1] = {
     &ffi_type_pointer,&ffi_type_pointer,
 };
 
-typedef struct{
-    char key[sizeof(int) * 4];
-    uint64_t hash;
-
-    enum rpc_types type;
-    void* raw_ptr;
-    int index;
-}rpc_updated_argument_info;
-
 static int proto_equals(enum rpc_types* sproto, int sproto_len, rpc_struct_t cl_args){
     if(rpc_struct_length(cl_args) < sproto_len) return 0;
 
@@ -162,7 +153,7 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
     ffi_type** ffi_prototype = NULL;
 
 
-    char el[sizeof(int) * 4]; //TODO: cache libffi prototype in obj
+    char el[sizeof(int) * 4];
 
     char cache_prototype[RPC_STRUCT_ID_SIZE + strlen(fn_name) + 16]; //should be just enough
     sprintf(cache_prototype,"%s : %s",rpc_struct_id_get(cobj),fn_name);
@@ -182,39 +173,10 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
     assert(ffi_prep_cif_var(&cif,FFI_DEFAULT_ABI,rpc_function_get_prototype_len(fn),(int)rpc_struct_length(params),rpctype_to_libffi[rpc_function_get_return_type(fn)],ffi_prototype) == 0);
     void** ffi_arguments = calloc(rpc_struct_length(params),sizeof(void*)); assert(ffi_arguments);
 
-    struct sc_queue_ptr updated_arguments;
-    sc_queue_init(&updated_arguments);
-
     for(int i = 0; i < (int)rpc_struct_length(params); i++){
         sprintf(el,"%d",i);
         ffi_arguments[i] = calloc(1,sizeof(uint64_t)); assert(ffi_arguments[i]);
         rpc_struct_get_unsafe(params,el,*(uint64_t*)ffi_arguments[i]); //using unsafe, because type safe variant will crash us out
-
-        enum rpc_types type = rpc_struct_typeof(params,el);
-
-        if(rpc_is_pointer(type) && type != RPC_unknown){
-            rpc_updated_argument_info* arg_info = calloc(1,sizeof(*arg_info)); assert(arg_info);
-
-            arg_info->index = i;
-            arg_info->type = type;
-            arg_info->raw_ptr = *(void**)ffi_arguments[i];
-            strcpy(arg_info->key,el);
-
-            switch(type){ //calculating item's hash to decide to set them in repacked or not
-                case RPC_struct:
-                    arg_info->hash = rpc_struct_hash(*(void**)ffi_arguments[i]);
-                    break;
-                case RPC_sizedbuf:
-                    arg_info->hash = rpc_sizedbuf_hash(*(void**)ffi_arguments[i]);
-                    break;
-                case RPC_string:
-                    arg_info->hash = murmur((uint8_t*)*(void**)ffi_arguments[i],strlen(*(char**)ffi_arguments[i]));
-                    break;
-
-                default: break; //unhasheble type?
-            }
-            sc_queue_add_last(&updated_arguments,arg_info);
-        }
     }
 
     void* return_is = NULL;
@@ -227,42 +189,6 @@ int rpc_cobject_call(rpc_struct_t cobj, char* fn_name, rpc_struct_t params, rpc_
     for(int i = 0; i < (int)rpc_struct_length(params); i++)
         free(ffi_arguments[i]);
     free(ffi_arguments);
-
-    int updated_arguments_len = sc_queue_size(&updated_arguments);
-    for(int i = 0; i < updated_arguments_len; i++){
-        rpc_updated_argument_info* arg_info = sc_queue_del_first(&updated_arguments);
-        assert(arg_info);
-
-        int do_set = 0;
-        if(arg_info->raw_ptr == (void*)ffi_return){
-            return_is = arg_info->raw_ptr;
-            do_set = 1;
-        }
-        switch(arg_info->type){
-            case RPC_struct:
-                if(rpc_struct_hash(arg_info->raw_ptr) != arg_info->hash) do_set = 1; //this means value have been changed
-                break;
-            case RPC_sizedbuf:
-                if(rpc_sizedbuf_hash(arg_info->raw_ptr) != arg_info->hash) do_set = 1;
-                break;
-            case RPC_string:
-                if(murmur(arg_info->raw_ptr,strlen(arg_info->raw_ptr)) != arg_info->hash) do_set = 1;
-                break;
-            default:
-                do_set = 1;  //looks like unhasheble type like RPC_function
-                break;
-        }
-
-        if(do_set == 1){
-            rpc_type_t element;
-            element.type = arg_info->type;
-            element.data_container.ptr_value = arg_info->raw_ptr;
-            rpc_struct_set_internal(output,arg_info->key,element);
-        }
-        free(arg_info);
-        continue;
-    }
-    sc_queue_term(&updated_arguments);
 
     if(rpc_function_get_return_type(fn) != RPC_none && rpc_function_get_return_type(fn) != RPC_unknown){ //we cannot serialise RPC_unknown since it is a raw pointer
         if(!(rpc_is_pointer(rpc_function_get_return_type(fn)) && (void*)ffi_return == NULL)){

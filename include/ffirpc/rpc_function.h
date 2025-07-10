@@ -26,14 +26,19 @@
 #pragma once
 
 #include <ffirpc/rpc_struct.h>
+#include <ffirpc/rpc_config.h>
 
 #define INTERNAL_API
 typedef struct _rpc_function* rpc_function_t;
 
 rpc_function_t rpc_function_create();
 void rpc_function_free(rpc_function_t fn);
+
+#ifdef RPC_SERIALISERS
 json_t* rpc_function_serialize(rpc_function_t fn);
 rpc_function_t rpc_function_deserialize(json_t* json);
+#endif
+
 void* rpc_function_get_fnptr(rpc_function_t fn);
 void rpc_function_set_fnptr(rpc_function_t fn, void* fnptr);
 void rpc_function_set_prototype(rpc_function_t fn, enum rpc_types* prototype, int prototype_len);

@@ -79,6 +79,7 @@ rpc_function_t rpc_function_copy(rpc_function_t fn){
     return new;
 }
 
+#ifdef RPC_SERIALISERS
 #define STRINGIFY(x) #x
 json_t* rpc_function_serialize(rpc_function_t fn){
     json_t* root = json_object(); assert(root);
@@ -126,6 +127,7 @@ bad_exit:
     rpc_function_free(fn);
     return NULL;
 }
+#endif
 
 void* rpc_function_get_fnptr(rpc_function_t fn){
     return fn != NULL ? fn->fnptr : NULL;

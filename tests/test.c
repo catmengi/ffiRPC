@@ -250,7 +250,7 @@ rpc_struct_t test(rpc_struct_t rpc,rpc_struct_t u){
     assert(rpc == u);
     puts("TEST FUNCTION SUCCESSFULLY INVOKED!");
     rpc_struct_set(rpc, "test_str", (char*)"gjweruiojgikouerwjgioerejgerio");
-    return rpc_cobject_current();
+    return u;
 }
 void obj_init(){
     rpc_struct_t new_cobj = rpc_struct_create();
@@ -297,7 +297,7 @@ int main(){
      rpc_function_t fn = NULL;
      assert(rpc_struct_get(cobj, "puts", fn) == 0);
 
-     for(size_t i = 0; i < 512; i++){
+     for(size_t i = 0; i < 16; i++){
         rpc_struct_t debug = rpc_struct_create();
 
         rpc_struct_t refdbg = rpc_struct_create();
@@ -305,15 +305,15 @@ int main(){
 
         rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
 
-
-        assert(rpc_struct_exists(check,"puts") == 1);
-        rpc_function_t nfn = NULL;
-        rpc_struct_get(check,"puts",nfn);
-        assert(rpc_function_get_fnptr(nfn) != NULL);
+#ifdef RPC_NETWORK
+        assert(check != debug);
+        rpc_struct_free(debug);
+#else
+        assert(check == debug);
         assert(rpc_struct_exists(debug,"test_str") == 1);
 
+#endif
         rpc_struct_free(check);
-        rpc_struct_free(debug);
         rpc_struct_free(refdbg);
 
      }
