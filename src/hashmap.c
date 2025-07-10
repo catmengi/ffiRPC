@@ -36,7 +36,6 @@
 #include <string.h>
 
 #include <ffirpc/hashmap/hashmap_base.h>
-#include <ffirpc/memory_pool.h>
 
 /* Table sizes must be powers of 2 */
 #define HASHMAP_SIZE_MIN               32

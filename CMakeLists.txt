@@ -21,7 +21,6 @@ set(SRC
     ${SRC_DIR}/rpc_struct.c
     ${SRC_DIR}/rpc_client.c
     ${SRC_DIR}/hashmap.c
-    ${SRC_DIR}/memory_pool.c
 )
 
 include_directories(${PROJECT_SOURCE_DIR})

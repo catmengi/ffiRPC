@@ -6,5 +6,7 @@ O3
 *.o
 *.exe
 *.dll
+gmon.out
+profile.txt
 compile_commands.json
 vgcore*
