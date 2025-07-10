@@ -267,19 +267,18 @@ void obj_init(){
 
 int main(){
     rpc_init();
+#ifdef RPC_SERIALISERS
+    check_rpc_struct_ids();
+    szbuf_test();
+#endif
 
-// #ifdef RPC_SERIALISERS
-//      check_rpc_struct_ids();
-//      szbuf_test();
-// #endif
-//
-//      check_rpc_struct_onfree_remove();
-//      check_copy_of();
-//      basic_free_test();
-//      adv_free_test();
-//      adv_free_test_fn();
-//      adv_free_test_sz();
-     obj_init();
+    check_rpc_struct_onfree_remove();
+    check_copy_of();
+    basic_free_test();
+    adv_free_test();
+    adv_free_test_fn();
+    adv_free_test_sz();
+    obj_init();
 
 #ifdef RPC_NETWORK
      rpc_server_launch_port(2077);
