@@ -268,8 +268,8 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
     rpc_struct_t call_request = rpc_struct_create();
     rpc_struct_t fn_args = rpc_struct_create();
 
-    HASHMAP(void, void) to_update_ptr;
-    hashmap_init(&to_update_ptr,ptracker_hash_ptr,ptracker_ptr_cmp);
+    HASHMAP(void, void) arg_info_storage;
+    hashmap_init(&arg_info_storage,ptracker_hash_ptr,ptracker_ptr_cmp);
 
     HASHMAP(void, void) updated;
     hashmap_init(&updated,ptracker_hash_ptr,ptracker_ptr_cmp);
@@ -302,9 +302,9 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
                     ctx->free = NULL; //disabling reference counted free for this element if it wasnt reference counted before rpc_struct_set_internal
                 }
 
-                if(hashmap_get(&to_update_ptr,element.data_container.ptr_value) == NULL){
+                if(hashmap_get(&arg_info_storage,element.data_container.ptr_value) == NULL){
                     infos[i].was_refcounted = was_refcounted;
-                    hashmap_put(&to_update_ptr, element.data_container.ptr_value, &infos[i]);
+                    hashmap_put(&arg_info_storage, element.data_container.ptr_value, &infos[i]);
                 }
             }
             break;
@@ -339,7 +339,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
         }
 
         if(return_fill_later){ //if running through local mode, return CAN be SAME as one of arguments, better safe than sorry!
-            arg_info* arg_info = hashmap_get(&to_update_ptr,return_fill_later);
+            arg_info* arg_info = hashmap_get(&arg_info_storage,return_fill_later);
             if(arg_info == NULL || arg_info->was_refcounted == 0){
                 rpc_struct_prec_ptr_ctx* ctx = prec_context_get(prec_get(return_fill_later));
                 if(ctx) ctx->free = NULL; //are you sure? Yes i am. But really, we dont want the return value to be controled by someone else.....
@@ -371,7 +371,7 @@ static void call_rpc_closure(ffi_cif* cif, void* ret, void* args[], void* udata)
 
     rpc_struct_free(reply);
 
-    hashmap_cleanup(&to_update_ptr);
+    hashmap_cleanup(&arg_info_storage);
     hashmap_cleanup(&updated);
 
     pthread_mutex_unlock(&my_data->lock);
