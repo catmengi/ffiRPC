@@ -267,19 +267,18 @@ void obj_init(){
 
 int main(){
     rpc_init();
-
 #ifdef RPC_SERIALISERS
-     check_rpc_struct_ids();
-     szbuf_test();
+    check_rpc_struct_ids();
+    szbuf_test();
 #endif
 
-     check_rpc_struct_onfree_remove();
-     check_copy_of();
-     basic_free_test();
-     adv_free_test();
-     adv_free_test_fn();
-     adv_free_test_sz();
-     obj_init();
+    check_rpc_struct_onfree_remove();
+    check_copy_of();
+    basic_free_test();
+    adv_free_test();
+    adv_free_test_fn();
+    adv_free_test_sz();
+    obj_init();
 
 #ifdef RPC_NETWORK
      rpc_server_launch_port(2077);
@@ -298,26 +297,29 @@ int main(){
      rpc_function_t fn = NULL;
      assert(rpc_struct_get(cobj, "puts", fn) == 0);
 
-     rpc_struct_t debug = rpc_struct_create();
+     for(size_t i = 0; i < 512; i++){
+        rpc_struct_t debug = rpc_struct_create();
 
-     rpc_struct_t refdbg = rpc_struct_create();
-     rpc_struct_set(refdbg, "dbg", debug);
+        rpc_struct_t refdbg = rpc_struct_create();
+        rpc_struct_set(refdbg, "dbg", debug);
 
-     rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
+        rpc_struct_t check = ((rpc_struct_t (*)(rpc_struct_t, rpc_struct_t))rpc_function_get_fnptr(fn))(debug,debug);
 
 
-     assert(rpc_struct_exists(check,"puts") == 1);
-     rpc_function_t nfn = NULL;
-     rpc_struct_get(check,"puts",nfn);
-     assert(rpc_function_get_fnptr(nfn) != NULL);
-     assert(rpc_struct_exists(debug,"test_str") == 1);
+        assert(rpc_struct_exists(check,"puts") == 1);
+        rpc_function_t nfn = NULL;
+        rpc_struct_get(check,"puts",nfn);
+        assert(rpc_function_get_fnptr(nfn) != NULL);
+        assert(rpc_struct_exists(debug,"test_str") == 1);
 
-     rpc_struct_free(check);
-     rpc_struct_free(debug);
+        rpc_struct_free(check);
+        rpc_struct_free(debug);
+        rpc_struct_free(refdbg);
+
+     }
 
      rpc_struct_free(cobj);
      rpc_client_free(client);
-     rpc_struct_free(refdbg);
 
 #ifdef RPC_NETWORK
      rpc_server_stop_port(2077);

@@ -2,8 +2,11 @@ test
 test32
 valgrind_test
 donkey
+O3
 *.o
 *.exe
 *.dll
+gmon.out
+profile.txt
 compile_commands.json
 vgcore*
